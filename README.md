@@ -48,6 +48,7 @@ Example MCP client configuration:
 ## Tools
 
 - `get_version`: Return server, Python, `yt-dlp`, and optional `ffmpeg` versions.
+- `diagnose_environment`: Return dependency, policy, and output-root diagnostics.
 - `probe_url`: Extract sanitized metadata without downloading media.
 - `list_formats`: Return a compact normalized format table.
 - `suggest_format`: Convert a simple goal into a `yt-dlp` format selector.
@@ -70,6 +71,7 @@ Example MCP client configuration:
 - `ytdlp://jobs/{job_id}/artifacts`
 - `ytdlp://jobs/{job_id}/artifacts/{index}/preview`
 - `ytdlp://config/effective-policy`
+- `ytdlp://diagnostics/environment`
 
 ## Safety Model
 

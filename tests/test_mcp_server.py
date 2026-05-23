@@ -28,6 +28,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         tools = await self.server.list_tools()
         by_name = {tool.name: tool for tool in tools}
 
+        self.assertIn("diagnose_environment", by_name)
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
@@ -38,6 +39,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(by_name["start_download"].annotations.openWorldHint)
         self.assertTrue(by_name["list_jobs"].annotations.readOnlyHint)
         self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
+        self.assertTrue(by_name["diagnose_environment"].annotations.readOnlyHint)
 
     async def test_suggest_format_call_returns_structured_payload(self):
         result = await self.server.call_tool("suggest_format", {"goal": "audio mp3"})
@@ -64,6 +66,23 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(payload["max_playlist_items"], 20)
         self.assertEqual(payload["output_root"], str(Path("/tmp/ytdlp-mcp-test").resolve()))
+
+    async def test_diagnostics_tool_and_resource_are_readable(self):
+        tool_result = await self.server.call_tool("diagnose_environment", {})
+        tool_payload = _tool_payload(tool_result)
+        resource = await self.server.read_resource("ytdlp://diagnostics/environment")
+        resource_payload = json.loads(resource[0].content)
+
+        self.assertTrue(tool_payload["ok"])
+        self.assertIn(tool_payload["diagnostics"]["status"], {"ok", "warning", "error"})
+        self.assertEqual(
+            tool_payload["diagnostics"]["policy"]["output_root"],
+            str(Path("/tmp/ytdlp-mcp-test").resolve()),
+        )
+        self.assertEqual(
+            resource_payload["policy"]["output_root"],
+            str(Path("/tmp/ytdlp-mcp-test").resolve()),
+        )
 
     async def test_jobs_resource_lists_known_jobs(self):
         resource = await self.server.read_resource("ytdlp://jobs")
@@ -109,6 +128,7 @@ async def _stdio_smoke():
         tools = await session.list_tools()
         tool_names = {tool.name for tool in tools.tools}
         assert "suggest_format" in tool_names
+        assert "diagnose_environment" in tool_names
 
         result = await session.call_tool("suggest_format", {"goal": "1080p mp4"})
         payload = json.loads(result.content[0].text)
@@ -118,3 +138,9 @@ async def _stdio_smoke():
         resource = await session.read_resource("ytdlp://config/effective-policy")
         policy = json.loads(resource.contents[0].text)
         assert policy["output_root"] == str(Path("/tmp/ytdlp-mcp-stdio-test").resolve())
+
+        diagnostics = await session.read_resource("ytdlp://diagnostics/environment")
+        report = json.loads(diagnostics.contents[0].text)
+        assert report["policy"]["output_root"] == str(
+            Path("/tmp/ytdlp-mcp-stdio-test").resolve()
+        )

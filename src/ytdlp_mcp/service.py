@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import shutil
 import subprocess
 import sys
@@ -8,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from . import __version__
+from .diagnostics import build_environment_diagnostics
 from .errors import DependencyError, DownloadError, JobCancelledError
 from .jobs import JobContext
 from .options import (
@@ -34,9 +36,13 @@ class YtdlpService:
         return {
             "server": __version__,
             "python": sys.version.split()[0],
+            "mcp": _package_version("mcp"),
             "yt_dlp": yt_dlp_version,
             "ffmpeg": _ffmpeg_version(),
         }
+
+    def diagnostics(self) -> dict[str, Any]:
+        return build_environment_diagnostics(self._policy, self.versions())
 
     def probe(self, url: str, *, playlist_items: str | None = None) -> dict[str, Any]:
         validated_url = validate_url(url, self._policy)
@@ -181,6 +187,13 @@ def _ffmpeg_version() -> str | None:
         return None
     first_line = result.stdout.splitlines()[0] if result.stdout else ""
     return first_line or None
+
+
+def _package_version(package: str) -> str | None:
+    try:
+        return importlib.metadata.version(package)
+    except importlib.metadata.PackageNotFoundError:
+        return None
 
 
 def _discover_existing_files(policy: Policy, candidates: set[str]) -> list[str]:

@@ -98,6 +98,14 @@ def create_server(policy: Policy | None = None) -> Any:
         """Return server, Python, yt-dlp, and ffmpeg versions."""
         return {"ok": True, "versions": service.versions()}
 
+    @mcp.tool(annotations=read_only_local)
+    def diagnose_environment() -> dict[str, Any]:
+        """Return dependency, policy, and output-root diagnostics."""
+        try:
+            return {"ok": True, "diagnostics": service.diagnostics()}
+        except Exception as exc:
+            return to_error_payload(exc)
+
     @mcp.tool(annotations=read_only_network)
     def probe_url(url: str, playlist_items: str | None = None) -> dict[str, Any]:
         """Extract sanitized media metadata without downloading media."""
@@ -283,6 +291,10 @@ def create_server(policy: Policy | None = None) -> Any:
     @mcp.resource("ytdlp://config/effective-policy")
     def policy_resource() -> str:
         return _json(effective_policy.as_dict())
+
+    @mcp.resource("ytdlp://diagnostics/environment")
+    def diagnostics_resource() -> str:
+        return _json(service.diagnostics())
 
     @mcp.prompt()
     def plan_download(goal: str, url: str) -> str:

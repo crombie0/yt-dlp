@@ -1,0 +1,125 @@
+from __future__ import annotations
+
+import os
+from importlib.util import find_spec
+from pathlib import Path
+from typing import Any
+
+from .policy import Policy
+
+OK = "ok"
+WARNING = "warning"
+ERROR = "error"
+
+
+def build_environment_diagnostics(policy: Policy, versions: dict[str, Any]) -> dict[str, Any]:
+    checks = [
+        _version_check("python", versions.get("python"), required=True),
+        _version_check(
+            "mcp",
+            versions.get("mcp") or _installed_package_location("mcp"),
+            required=True,
+        ),
+        _version_check("yt_dlp", versions.get("yt_dlp"), required=True),
+        _version_check("ffmpeg", versions.get("ffmpeg"), required=False),
+        _output_root_check(policy.resolved_output_root),
+        _policy_check(policy),
+    ]
+    return {
+        "status": _overall_status(checks),
+        "checks": checks,
+        "versions": versions,
+        "policy": policy.as_dict(),
+    }
+
+
+def _version_check(name: str, value: object, *, required: bool) -> dict[str, Any]:
+    if value:
+        return {
+            "name": name,
+            "status": OK,
+            "required": required,
+            "detail": str(value),
+        }
+
+    status = ERROR if required else WARNING
+    message = "required dependency is missing" if required else "optional dependency is missing"
+    return {
+        "name": name,
+        "status": status,
+        "required": required,
+        "detail": message,
+    }
+
+
+def _installed_package_location(package: str) -> str | None:
+    spec = find_spec(package)
+    if spec is None:
+        return None
+    return spec.origin or "installed"
+
+
+def _output_root_check(output_root: Path) -> dict[str, Any]:
+    root_exists = output_root.exists()
+    parent = output_root if root_exists else output_root.parent
+    parent_exists = parent.exists()
+    is_directory = output_root.is_dir() if root_exists else None
+    writable = (
+        os.access(output_root if root_exists else parent, os.W_OK)
+        if parent_exists
+        else False
+    )
+
+    status = OK
+    detail = "output root exists and appears writable"
+    if root_exists and not is_directory:
+        status = ERROR
+        detail = "output root exists but is not a directory"
+    elif not parent_exists:
+        status = ERROR
+        detail = "output root parent directory does not exist"
+    elif not writable:
+        status = WARNING
+        detail = "output root or parent is not writable by this process"
+    elif not root_exists:
+        status = WARNING
+        detail = "output root does not exist yet but parent appears writable"
+
+    return {
+        "name": "output_root",
+        "status": status,
+        "required": True,
+        "path": str(output_root),
+        "exists": root_exists,
+        "is_directory": is_directory,
+        "parent": str(parent),
+        "parent_exists": parent_exists,
+        "writable": writable,
+        "detail": detail,
+    }
+
+
+def _policy_check(policy: Policy) -> dict[str, Any]:
+    warnings: list[str] = []
+    if policy.allow_local_urls:
+        warnings.append("local/private URLs are allowed")
+    if policy.max_playlist_items > 100:
+        warnings.append("playlist item limit is high")
+    if policy.max_concurrent_jobs > (os.cpu_count() or 1) * 2:
+        warnings.append("concurrent job limit is high for this host")
+
+    return {
+        "name": "policy",
+        "status": WARNING if warnings else OK,
+        "required": True,
+        "detail": "; ".join(warnings) if warnings else "policy is within conservative defaults",
+    }
+
+
+def _overall_status(checks: list[dict[str, Any]]) -> str:
+    statuses = {check["status"] for check in checks}
+    if ERROR in statuses:
+        return ERROR
+    if WARNING in statuses:
+        return WARNING
+    return OK
