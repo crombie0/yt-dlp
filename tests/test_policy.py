@@ -16,7 +16,10 @@ class PolicyTests(unittest.TestCase):
         self.policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), max_playlist_items=10)
 
     def test_accepts_https_url(self):
-        self.assertEqual(validate_url("https://example.com/watch?v=1", self.policy), "https://example.com/watch?v=1")
+        self.assertEqual(
+            validate_url("https://example.com/watch?v=1", self.policy),
+            "https://example.com/watch?v=1",
+        )
 
     def test_blocks_non_http_url(self):
         with self.assertRaises(PolicyError):
@@ -32,7 +35,44 @@ class PolicyTests(unittest.TestCase):
 
     def test_allows_localhost_when_policy_enabled(self):
         policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allow_local_urls=True)
-        self.assertEqual(validate_url("http://localhost:8000/video", policy), "http://localhost:8000/video")
+        self.assertEqual(
+            validate_url("http://localhost:8000/video", policy),
+            "http://localhost:8000/video",
+        )
+
+    def test_allowed_domains_allow_subdomains(self):
+        policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allowed_domains=("example.com",))
+
+        self.assertEqual(
+            validate_url("https://media.example.com/video", policy),
+            "https://media.example.com/video",
+        )
+
+    def test_allowed_domains_block_other_hosts(self):
+        policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allowed_domains=("example.com",))
+
+        with self.assertRaises(PolicyError):
+            validate_url("https://example.org/video", policy)
+
+    def test_blocked_domains_override_allowed_domains(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            allowed_domains=("example.com",),
+            blocked_domains=("media.example.com",),
+        )
+
+        with self.assertRaises(PolicyError):
+            validate_url("https://media.example.com/video", policy)
+
+    def test_domain_matching_does_not_allow_suffix_tricks(self):
+        policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allowed_domains=("example.com",))
+
+        with self.assertRaises(PolicyError):
+            validate_url("https://badexample.com/video", policy)
+
+    def test_rejects_invalid_domain_policy_entries(self):
+        with self.assertRaises(PolicyError):
+            Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allowed_domains=("https://example.com",))
 
     def test_playlist_range_is_bounded(self):
         self.assertEqual(validate_playlist_items("1-3", self.policy), "1-3")

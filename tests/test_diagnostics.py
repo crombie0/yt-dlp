@@ -9,7 +9,7 @@ from ytdlp_mcp.policy import Policy
 class DiagnosticsTests(unittest.TestCase):
     def test_reports_ok_for_existing_writable_output_root(self):
         with TemporaryDirectory() as root:
-            policy = Policy(output_root=Path(root))
+            policy = Policy(output_root=Path(root), allowed_domains=("example.com",))
             report = build_environment_diagnostics(
                 policy,
                 {
@@ -27,7 +27,10 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_reports_warning_for_missing_output_root_with_writable_parent(self):
         with TemporaryDirectory() as root:
-            policy = Policy(output_root=Path(root) / "missing")
+            policy = Policy(
+                output_root=Path(root) / "missing",
+                allowed_domains=("example.com",),
+            )
             report = build_environment_diagnostics(
                 policy,
                 {
@@ -45,7 +48,7 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_reports_error_for_missing_required_dependency(self):
         with TemporaryDirectory() as root:
-            policy = Policy(output_root=Path(root))
+            policy = Policy(output_root=Path(root), allowed_domains=("example.com",))
             report = build_environment_diagnostics(
                 policy,
                 {"python": "3.13", "mcp": "1.27.1", "yt_dlp": None, "ffmpeg": None},
@@ -58,7 +61,11 @@ class DiagnosticsTests(unittest.TestCase):
 
     def test_reports_policy_warning_for_local_urls(self):
         with TemporaryDirectory() as root:
-            policy = Policy(output_root=Path(root), allow_local_urls=True)
+            policy = Policy(
+                output_root=Path(root),
+                allow_local_urls=True,
+                allowed_domains=("example.com",),
+            )
             report = build_environment_diagnostics(
                 policy,
                 {
@@ -72,6 +79,23 @@ class DiagnosticsTests(unittest.TestCase):
             checks = {check["name"]: check for check in report["checks"]}
             self.assertEqual(checks["policy"]["status"], "warning")
             self.assertIn("local/private URLs", checks["policy"]["detail"])
+
+    def test_reports_policy_warning_without_allowed_domains(self):
+        with TemporaryDirectory() as root:
+            policy = Policy(output_root=Path(root))
+            report = build_environment_diagnostics(
+                policy,
+                {
+                    "python": "3.13",
+                    "mcp": "1.27.1",
+                    "yt_dlp": "2026.03.17",
+                    "ffmpeg": "ffmpeg version 8",
+                },
+            )
+
+            checks = {check["name"]: check for check in report["checks"]}
+            self.assertEqual(checks["policy"]["status"], "warning")
+            self.assertIn("no allowed domain list", checks["policy"]["detail"])
 
 
 if __name__ == "__main__":

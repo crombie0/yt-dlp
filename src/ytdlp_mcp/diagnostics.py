@@ -103,6 +103,12 @@ def _policy_check(policy: Policy) -> dict[str, Any]:
     warnings: list[str] = []
     if policy.allow_local_urls:
         warnings.append("local/private URLs are allowed")
+    if not policy.allowed_domains:
+        warnings.append("no allowed domain list is configured")
+    if policy.allowed_domains and policy.blocked_domains:
+        overlap = sorted(set(policy.allowed_domains) & set(policy.blocked_domains))
+        if overlap:
+            warnings.append(f"domains appear in both allow and block lists: {', '.join(overlap)}")
     if policy.max_playlist_items > 100:
         warnings.append("playlist item limit is high")
     if policy.max_concurrent_jobs > (os.cpu_count() or 1) * 2:

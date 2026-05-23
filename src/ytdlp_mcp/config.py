@@ -20,6 +20,8 @@ CONFIG_PATH_ENV = "YTDLP_MCP_CONFIG"
 POLICY_KEYS = {
     "output_root",
     "allow_local_urls",
+    "allowed_domains",
+    "blocked_domains",
     "max_playlist_items",
     "max_concurrent_jobs",
     "max_log_lines",
@@ -27,6 +29,8 @@ POLICY_KEYS = {
 ENV_OVERRIDES = {
     "output_root": "YTDLP_MCP_OUTPUT_ROOT",
     "allow_local_urls": "YTDLP_MCP_ALLOW_LOCAL_URLS",
+    "allowed_domains": "YTDLP_MCP_ALLOWED_DOMAINS",
+    "blocked_domains": "YTDLP_MCP_BLOCKED_DOMAINS",
     "max_playlist_items": "YTDLP_MCP_MAX_PLAYLIST_ITEMS",
     "max_concurrent_jobs": "YTDLP_MCP_MAX_CONCURRENT_JOBS",
     "max_log_lines": "YTDLP_MCP_MAX_LOG_LINES",
@@ -65,6 +69,8 @@ def load_configured_policy(
     values: dict[str, Any] = {
         "output_root": DEFAULT_OUTPUT_ROOT,
         "allow_local_urls": False,
+        "allowed_domains": [],
+        "blocked_domains": [],
         "max_playlist_items": DEFAULT_MAX_PLAYLIST_ITEMS,
         "max_concurrent_jobs": DEFAULT_MAX_CONCURRENT_JOBS,
         "max_log_lines": DEFAULT_MAX_LOG_LINES,
@@ -83,6 +89,8 @@ def load_configured_policy(
     policy = Policy(
         output_root=Path(_string_value(values["output_root"], "output_root")),
         allow_local_urls=_bool_value(values["allow_local_urls"], "allow_local_urls"),
+        allowed_domains=_list_value(values["allowed_domains"], "allowed_domains"),
+        blocked_domains=_list_value(values["blocked_domains"], "blocked_domains"),
         max_playlist_items=_int_value(values["max_playlist_items"], "max_playlist_items"),
         max_concurrent_jobs=_int_value(values["max_concurrent_jobs"], "max_concurrent_jobs"),
         max_log_lines=_int_value(values["max_log_lines"], "max_log_lines"),
@@ -138,6 +146,18 @@ def _int_value(value: Any, key: str) -> int:
         return int(value)
     except (TypeError, ValueError) as exc:
         raise PolicyError(f"{key} must be an integer.") from exc
+
+
+def _list_value(value: Any, key: str) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return tuple(item.strip() for item in value.split(",") if item.strip())
+    if not isinstance(value, list):
+        raise PolicyError(f"{key} must be a list of strings.")
+    if not all(isinstance(item, str) for item in value):
+        raise PolicyError(f"{key} must be a list of strings.")
+    return tuple(value)
 
 
 def _validate_positive_policy(policy: Policy) -> None:

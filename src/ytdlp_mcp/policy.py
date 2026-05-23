@@ -18,9 +18,15 @@ DEFAULT_MAX_LOG_LINES = 200
 class Policy:
     output_root: Path = field(default_factory=lambda: Path(DEFAULT_OUTPUT_ROOT))
     allow_local_urls: bool = False
+    allowed_domains: tuple[str, ...] = ()
+    blocked_domains: tuple[str, ...] = ()
     max_playlist_items: int = DEFAULT_MAX_PLAYLIST_ITEMS
     max_concurrent_jobs: int = DEFAULT_MAX_CONCURRENT_JOBS
     max_log_lines: int = DEFAULT_MAX_LOG_LINES
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "allowed_domains", normalize_domain_list(self.allowed_domains))
+        object.__setattr__(self, "blocked_domains", normalize_domain_list(self.blocked_domains))
 
     @classmethod
     def from_env(cls) -> Policy:
@@ -28,6 +34,8 @@ class Policy:
         return cls(
             output_root=output_root,
             allow_local_urls=_env_bool("YTDLP_MCP_ALLOW_LOCAL_URLS", default=False),
+            allowed_domains=_env_list("YTDLP_MCP_ALLOWED_DOMAINS"),
+            blocked_domains=_env_list("YTDLP_MCP_BLOCKED_DOMAINS"),
             max_playlist_items=_env_int(
                 "YTDLP_MCP_MAX_PLAYLIST_ITEMS",
                 default=DEFAULT_MAX_PLAYLIST_ITEMS,
@@ -53,6 +61,8 @@ class Policy:
         return {
             "output_root": str(self.resolved_output_root),
             "allow_local_urls": self.allow_local_urls,
+            "allowed_domains": list(self.allowed_domains),
+            "blocked_domains": list(self.blocked_domains),
             "max_playlist_items": self.max_playlist_items,
             "max_concurrent_jobs": self.max_concurrent_jobs,
             "max_log_lines": self.max_log_lines,
@@ -73,8 +83,33 @@ def validate_url(url: str, policy: Policy) -> str:
     hostname = parsed.hostname.strip().lower().rstrip(".")
     if not policy.allow_local_urls and _is_local_hostname(hostname):
         raise PolicyError("Local or private network URLs are blocked by default.")
+    if _domain_matches(hostname, policy.blocked_domains):
+        raise PolicyError("URL hostname is blocked by server policy.")
+    if policy.allowed_domains and not _domain_matches(hostname, policy.allowed_domains):
+        raise PolicyError("URL hostname is not in the allowed domain list.")
 
     return url
+
+
+def normalize_domain_list(domains: object) -> tuple[str, ...]:
+    if domains is None:
+        return ()
+    if isinstance(domains, str):
+        candidates = [item.strip() for item in domains.split(",")]
+    else:
+        try:
+            candidates = list(domains)  # type: ignore[arg-type]
+        except TypeError as exc:
+            raise PolicyError("domain lists must be a list of strings.") from exc
+
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        domain = _normalize_domain(candidate)
+        if domain and domain not in seen:
+            normalized.append(domain)
+            seen.add(domain)
+    return tuple(normalized)
 
 
 def validate_playlist_items(playlist_items: str | None, policy: Policy) -> str | None:
@@ -155,6 +190,37 @@ def _is_local_hostname(hostname: str) -> bool:
     )
 
 
+def _domain_matches(hostname: str, domains: tuple[str, ...]) -> bool:
+    normalized_hostname = hostname.lower().rstrip(".")
+    return any(
+        normalized_hostname == domain or normalized_hostname.endswith(f".{domain}")
+        for domain in domains
+    )
+
+
+def _normalize_domain(domain: object) -> str:
+    if not isinstance(domain, str):
+        raise PolicyError("domain list entries must be strings.")
+
+    value = domain.strip().lower().removeprefix(".").rstrip(".")
+    if not value:
+        return ""
+    if "://" in value or "/" in value or "@" in value or ":" in value:
+        raise PolicyError(f"Invalid domain entry: {domain}")
+
+    labels = value.split(".")
+    for label in labels:
+        if not label:
+            raise PolicyError(f"Invalid domain entry: {domain}")
+        if len(label) > 63:
+            raise PolicyError(f"Invalid domain entry: {domain}")
+        if label.startswith("-") or label.endswith("-"):
+            raise PolicyError(f"Invalid domain entry: {domain}")
+        if not all(ch.isascii() and (ch.isalnum() or ch == "-") for ch in label):
+            raise PolicyError(f"Invalid domain entry: {domain}")
+    return value
+
+
 def _env_bool(name: str, *, default: bool) -> bool:
     value = os.environ.get(name)
     if value is None:
@@ -173,3 +239,10 @@ def _env_int(name: str, *, default: int, minimum: int) -> int:
     if parsed < minimum:
         raise PolicyError(f"{name} must be at least {minimum}.")
     return parsed
+
+
+def _env_list(name: str) -> tuple[str, ...]:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return ()
+    return normalize_domain_list(value)

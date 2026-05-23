@@ -36,6 +36,8 @@ values when both are present.
 {
   "output_root": "/absolute/path/to/downloads",
   "allow_local_urls": false,
+  "allowed_domains": ["youtube.com", "youtu.be"],
+  "blocked_domains": [],
   "max_playlist_items": 20,
   "max_concurrent_jobs": 2,
   "max_log_lines": 200
@@ -96,6 +98,10 @@ Example MCP client configuration:
 The default policy blocks local URLs, non-HTTP(S) URLs, path traversal, raw shell
 execution, and output outside `YTDLP_MCP_OUTPUT_ROOT`. Cookie access and
 advanced postprocessor arguments are intentionally not exposed in the MVP.
+Set `allowed_domains` to restrict downloads to known hosts, and `blocked_domains`
+to deny specific hosts or subdomains. Environment overrides are available as
+`YTDLP_MCP_ALLOWED_DOMAINS` and `YTDLP_MCP_BLOCKED_DOMAINS` using comma-separated
+domain lists.
 
 Use this software only for media you are allowed to access and download.
 

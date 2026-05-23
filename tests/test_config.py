@@ -17,6 +17,8 @@ class ConfigTests(unittest.TestCase):
                     {
                         "output_root": str(output_root),
                         "allow_local_urls": True,
+                        "allowed_domains": ["example.com", "media.example.com"],
+                        "blocked_domains": ["ads.example.com"],
                         "max_playlist_items": 3,
                         "max_concurrent_jobs": 1,
                         "max_log_lines": 10,
@@ -29,6 +31,8 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(result.policy.resolved_output_root, output_root.resolve())
             self.assertTrue(result.policy.allow_local_urls)
+            self.assertEqual(result.policy.allowed_domains, ("example.com", "media.example.com"))
+            self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
             self.assertEqual(result.policy.max_playlist_items, 3)
             self.assertTrue(result.source["config_loaded"])
             self.assertEqual(result.source["config_path"], str(config.resolve()))
@@ -54,6 +58,8 @@ class ConfigTests(unittest.TestCase):
                 env={
                     "YTDLP_MCP_OUTPUT_ROOT": str(env_output_root),
                     "YTDLP_MCP_ALLOW_LOCAL_URLS": "true",
+                    "YTDLP_MCP_ALLOWED_DOMAINS": "example.com, youtu.be",
+                    "YTDLP_MCP_BLOCKED_DOMAINS": "ads.example.com",
                     "YTDLP_MCP_MAX_PLAYLIST_ITEMS": "5",
                 },
             )
@@ -61,11 +67,15 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(result.policy.resolved_output_root, env_output_root.resolve())
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.max_playlist_items, 5)
+            self.assertEqual(result.policy.allowed_domains, ("example.com", "youtu.be"))
+            self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
             self.assertEqual(
                 result.source["env_overrides"],
                 [
                     "YTDLP_MCP_OUTPUT_ROOT",
                     "YTDLP_MCP_ALLOW_LOCAL_URLS",
+                    "YTDLP_MCP_ALLOWED_DOMAINS",
+                    "YTDLP_MCP_BLOCKED_DOMAINS",
                     "YTDLP_MCP_MAX_PLAYLIST_ITEMS",
                 ],
             )
