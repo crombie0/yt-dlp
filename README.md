@@ -35,6 +35,7 @@ values when both are present.
 ```json
 {
   "output_root": "/absolute/path/to/downloads",
+  "job_db_path": "/absolute/path/to/ytdlp-mcp-jobs.sqlite3",
   "allow_local_urls": false,
   "allowed_domains": ["youtube.com", "youtu.be"],
   "blocked_domains": [],
@@ -98,6 +99,8 @@ Example MCP client configuration:
 The default policy blocks local URLs, non-HTTP(S) URLs, path traversal, raw shell
 execution, and output outside `YTDLP_MCP_OUTPUT_ROOT`. Cookie access and
 advanced postprocessor arguments are intentionally not exposed in the MVP.
+Set `job_db_path` or `YTDLP_MCP_JOB_DB_PATH` to persist job history and artifact
+metadata across server restarts.
 Set `allowed_domains` to restrict downloads to known hosts, and `blocked_domains`
 to deny specific hosts or subdomains. Environment overrides are available as
 `YTDLP_MCP_ALLOWED_DOMAINS` and `YTDLP_MCP_BLOCKED_DOMAINS` using comma-separated

@@ -21,6 +21,8 @@ class DiagnosticsTests(unittest.TestCase):
             )
 
             checks = {check["name"]: check for check in report["checks"]}
+            self.assertEqual(checks["job_db"]["status"], "ok")
+            self.assertEqual(checks["job_db"]["detail"], "job persistence is disabled")
             self.assertEqual(checks["output_root"]["status"], "ok")
             self.assertTrue(checks["output_root"]["exists"])
             self.assertEqual(report["status"], "ok")
@@ -96,6 +98,27 @@ class DiagnosticsTests(unittest.TestCase):
             checks = {check["name"]: check for check in report["checks"]}
             self.assertEqual(checks["policy"]["status"], "warning")
             self.assertIn("no allowed domain list", checks["policy"]["detail"])
+
+    def test_reports_job_db_warning_for_missing_parent(self):
+        with TemporaryDirectory() as root:
+            policy = Policy(
+                output_root=Path(root),
+                job_db_path=Path(root) / "missing" / "jobs.sqlite3",
+                allowed_domains=("example.com",),
+            )
+            report = build_environment_diagnostics(
+                policy,
+                {
+                    "python": "3.13",
+                    "mcp": "1.27.1",
+                    "yt_dlp": "2026.03.17",
+                    "ffmpeg": "ffmpeg version 8",
+                },
+            )
+
+            checks = {check["name"]: check for check in report["checks"]}
+            self.assertEqual(checks["job_db"]["status"], "warning")
+            self.assertFalse(checks["job_db"]["parent_exists"])
 
 
 if __name__ == "__main__":

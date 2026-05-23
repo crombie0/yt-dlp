@@ -19,6 +19,7 @@ from .policy import (
 CONFIG_PATH_ENV = "YTDLP_MCP_CONFIG"
 POLICY_KEYS = {
     "output_root",
+    "job_db_path",
     "allow_local_urls",
     "allowed_domains",
     "blocked_domains",
@@ -28,6 +29,7 @@ POLICY_KEYS = {
 }
 ENV_OVERRIDES = {
     "output_root": "YTDLP_MCP_OUTPUT_ROOT",
+    "job_db_path": "YTDLP_MCP_JOB_DB_PATH",
     "allow_local_urls": "YTDLP_MCP_ALLOW_LOCAL_URLS",
     "allowed_domains": "YTDLP_MCP_ALLOWED_DOMAINS",
     "blocked_domains": "YTDLP_MCP_BLOCKED_DOMAINS",
@@ -68,6 +70,7 @@ def load_configured_policy(
 
     values: dict[str, Any] = {
         "output_root": DEFAULT_OUTPUT_ROOT,
+        "job_db_path": None,
         "allow_local_urls": False,
         "allowed_domains": [],
         "blocked_domains": [],
@@ -88,6 +91,7 @@ def load_configured_policy(
 
     policy = Policy(
         output_root=Path(_string_value(values["output_root"], "output_root")),
+        job_db_path=_optional_path_value(values["job_db_path"], "job_db_path"),
         allow_local_urls=_bool_value(values["allow_local_urls"], "allow_local_urls"),
         allowed_domains=_list_value(values["allowed_domains"], "allowed_domains"),
         blocked_domains=_list_value(values["blocked_domains"], "blocked_domains"),
@@ -125,6 +129,12 @@ def _string_value(value: Any, key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PolicyError(f"{key} must be a non-empty string.")
     return value
+
+
+def _optional_path_value(value: Any, key: str) -> Path | None:
+    if value is None:
+        return None
+    return Path(_string_value(value, key))
 
 
 def _bool_value(value: Any, key: str) -> bool:

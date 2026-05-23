@@ -16,6 +16,7 @@ class ConfigTests(unittest.TestCase):
                 json.dumps(
                     {
                         "output_root": str(output_root),
+                        "job_db_path": str(Path(root) / "jobs.sqlite3"),
                         "allow_local_urls": True,
                         "allowed_domains": ["example.com", "media.example.com"],
                         "blocked_domains": ["ads.example.com"],
@@ -30,6 +31,10 @@ class ConfigTests(unittest.TestCase):
             result = load_configured_policy(config, env={})
 
             self.assertEqual(result.policy.resolved_output_root, output_root.resolve())
+            self.assertEqual(
+                result.policy.resolved_job_db_path,
+                (Path(root) / "jobs.sqlite3").resolve(),
+            )
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.allowed_domains, ("example.com", "media.example.com"))
             self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
@@ -42,6 +47,7 @@ class ConfigTests(unittest.TestCase):
             config = Path(root) / "ytdlp-mcp.json"
             file_output_root = Path(root) / "file-downloads"
             env_output_root = Path(root) / "env-downloads"
+            env_job_db_path = Path(root) / "env-jobs.sqlite3"
             config.write_text(
                 json.dumps(
                     {
@@ -57,6 +63,7 @@ class ConfigTests(unittest.TestCase):
                 config,
                 env={
                     "YTDLP_MCP_OUTPUT_ROOT": str(env_output_root),
+                    "YTDLP_MCP_JOB_DB_PATH": str(env_job_db_path),
                     "YTDLP_MCP_ALLOW_LOCAL_URLS": "true",
                     "YTDLP_MCP_ALLOWED_DOMAINS": "example.com, youtu.be",
                     "YTDLP_MCP_BLOCKED_DOMAINS": "ads.example.com",
@@ -65,6 +72,7 @@ class ConfigTests(unittest.TestCase):
             )
 
             self.assertEqual(result.policy.resolved_output_root, env_output_root.resolve())
+            self.assertEqual(result.policy.resolved_job_db_path, env_job_db_path.resolve())
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.max_playlist_items, 5)
             self.assertEqual(result.policy.allowed_domains, ("example.com", "youtu.be"))
@@ -73,6 +81,7 @@ class ConfigTests(unittest.TestCase):
                 result.source["env_overrides"],
                 [
                     "YTDLP_MCP_OUTPUT_ROOT",
+                    "YTDLP_MCP_JOB_DB_PATH",
                     "YTDLP_MCP_ALLOW_LOCAL_URLS",
                     "YTDLP_MCP_ALLOWED_DOMAINS",
                     "YTDLP_MCP_BLOCKED_DOMAINS",

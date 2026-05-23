@@ -23,6 +23,7 @@ def build_environment_diagnostics(policy: Policy, versions: dict[str, Any]) -> d
         _version_check("yt_dlp", versions.get("yt_dlp"), required=True),
         _version_check("ffmpeg", versions.get("ffmpeg"), required=False),
         _output_root_check(policy.resolved_output_root),
+        _job_db_check(policy.resolved_job_db_path),
         _policy_check(policy),
     ]
     return {
@@ -92,6 +93,40 @@ def _output_root_check(output_root: Path) -> dict[str, Any]:
         "path": str(output_root),
         "exists": root_exists,
         "is_directory": is_directory,
+        "parent": str(parent),
+        "parent_exists": parent_exists,
+        "writable": writable,
+        "detail": detail,
+    }
+
+
+def _job_db_check(job_db_path: Path | None) -> dict[str, Any]:
+    if job_db_path is None:
+        return {
+            "name": "job_db",
+            "status": OK,
+            "required": False,
+            "path": None,
+            "detail": "job persistence is disabled",
+        }
+
+    parent = job_db_path.parent
+    parent_exists = parent.exists()
+    writable = os.access(parent, os.W_OK) if parent_exists else False
+    status = OK
+    detail = "job persistence database path appears writable"
+    if not parent_exists:
+        status = WARNING
+        detail = "job persistence database parent directory does not exist yet"
+    elif not writable:
+        status = WARNING
+        detail = "job persistence database parent directory is not writable"
+
+    return {
+        "name": "job_db",
+        "status": status,
+        "required": False,
+        "path": str(job_db_path),
         "parent": str(parent),
         "parent_exists": parent_exists,
         "writable": writable,

@@ -17,6 +17,7 @@ DEFAULT_MAX_LOG_LINES = 200
 @dataclass(frozen=True, slots=True)
 class Policy:
     output_root: Path = field(default_factory=lambda: Path(DEFAULT_OUTPUT_ROOT))
+    job_db_path: Path | None = None
     allow_local_urls: bool = False
     allowed_domains: tuple[str, ...] = ()
     blocked_domains: tuple[str, ...] = ()
@@ -25,6 +26,9 @@ class Policy:
     max_log_lines: int = DEFAULT_MAX_LOG_LINES
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "output_root", Path(self.output_root))
+        if self.job_db_path is not None:
+            object.__setattr__(self, "job_db_path", Path(self.job_db_path))
         object.__setattr__(self, "allowed_domains", normalize_domain_list(self.allowed_domains))
         object.__setattr__(self, "blocked_domains", normalize_domain_list(self.blocked_domains))
 
@@ -33,6 +37,7 @@ class Policy:
         output_root = Path(os.environ.get("YTDLP_MCP_OUTPUT_ROOT", DEFAULT_OUTPUT_ROOT))
         return cls(
             output_root=output_root,
+            job_db_path=_env_path("YTDLP_MCP_JOB_DB_PATH"),
             allow_local_urls=_env_bool("YTDLP_MCP_ALLOW_LOCAL_URLS", default=False),
             allowed_domains=_env_list("YTDLP_MCP_ALLOWED_DOMAINS"),
             blocked_domains=_env_list("YTDLP_MCP_BLOCKED_DOMAINS"),
@@ -58,8 +63,10 @@ class Policy:
         return self.output_root.expanduser().resolve()
 
     def as_dict(self) -> dict[str, object]:
+        job_db_path = self.resolved_job_db_path
         return {
             "output_root": str(self.resolved_output_root),
+            "job_db_path": str(job_db_path) if job_db_path else None,
             "allow_local_urls": self.allow_local_urls,
             "allowed_domains": list(self.allowed_domains),
             "blocked_domains": list(self.blocked_domains),
@@ -67,6 +74,12 @@ class Policy:
             "max_concurrent_jobs": self.max_concurrent_jobs,
             "max_log_lines": self.max_log_lines,
         }
+
+    @property
+    def resolved_job_db_path(self) -> Path | None:
+        if self.job_db_path is None:
+            return None
+        return self.job_db_path.expanduser().resolve()
 
 
 def validate_url(url: str, policy: Policy) -> str:
@@ -246,3 +259,10 @@ def _env_list(name: str) -> tuple[str, ...]:
     if value is None or not value.strip():
         return ()
     return normalize_domain_list(value)
+
+
+def _env_path(name: str) -> Path | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return None
+    return Path(value)
