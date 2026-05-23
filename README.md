@@ -36,6 +36,7 @@ values when both are present.
 {
   "output_root": "/absolute/path/to/downloads",
   "job_db_path": "/absolute/path/to/ytdlp-mcp-jobs.sqlite3",
+  "egress_state_path": "/absolute/path/to/ytdlp-mcp-egress-state.json",
   "proxy": null,
   "require_proxy": false,
   "active_egress_profile": null,
@@ -52,7 +53,8 @@ values when both are present.
   "blocked_domains": [],
   "max_playlist_items": 20,
   "max_concurrent_jobs": 2,
-  "max_log_lines": 200
+  "max_log_lines": 200,
+  "egress_cooldown_seconds": 3600
 }
 ```
 
@@ -82,7 +84,10 @@ Example MCP client configuration:
 - `diagnose_environment`: Return dependency, policy, and output-root diagnostics.
 - `list_egress_profiles`: Return configured egress profiles with secrets redacted.
 - `get_egress_status`: Return the active egress profile and blocking issues.
+- `get_egress_health`: Return persisted egress cooldowns and recent failure events.
 - `test_egress_ip`: Check the public IP seen through an egress profile.
+- `report_egress_failure`: Record a block-like egress failure and apply cooldown.
+- `clear_egress_cooldown`: Clear persisted egress cooldowns.
 - `probe_url`: Extract sanitized metadata without downloading media.
 - `list_formats`: Return a compact normalized format table.
 - `suggest_format`: Convert a simple goal into a `yt-dlp` format selector.
@@ -109,6 +114,7 @@ Example MCP client configuration:
 - `ytdlp://diagnostics/environment`
 - `ytdlp://egress/profiles`
 - `ytdlp://egress/status`
+- `ytdlp://egress/health`
 
 ## Safety Model
 
@@ -131,6 +137,10 @@ For provider-agnostic operations, define `egress_profiles` and set
 `active_egress_profile`. A `proxy` profile applies a yt-dlp proxy; an
 `external_vpn` profile documents process/container-level VPN routing and should
 only be enabled after `test_egress_ip` verifies the expected exit IP.
+Set `egress_state_path` to persist egress failures and cooldowns. Block-like
+errors such as HTTP 429, HTTP 403, CAPTCHA, and bot-detection messages are
+classified and place the active profile/domain into cooldown for
+`egress_cooldown_seconds`, preventing repeated retries from the same exit path.
 
 Use this software only for media you are allowed to access and download.
 

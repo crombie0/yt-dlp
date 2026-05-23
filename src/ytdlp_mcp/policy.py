@@ -15,6 +15,7 @@ DEFAULT_OUTPUT_ROOT = "downloads"
 DEFAULT_MAX_PLAYLIST_ITEMS = 20
 DEFAULT_MAX_CONCURRENT_JOBS = 2
 DEFAULT_MAX_LOG_LINES = 200
+DEFAULT_EGRESS_COOLDOWN_SECONDS = 3600
 EGRESS_PROFILE_TYPES = {"proxy", "external_vpn"}
 EGRESS_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
@@ -61,10 +62,12 @@ class EgressProfile:
 class Policy:
     output_root: Path = field(default_factory=lambda: Path(DEFAULT_OUTPUT_ROOT))
     job_db_path: Path | None = None
+    egress_state_path: Path | None = None
     proxy: str | None = None
     require_proxy: bool = False
     active_egress_profile: str | None = None
     egress_profiles: tuple[EgressProfile, ...] = ()
+    egress_cooldown_seconds: int = DEFAULT_EGRESS_COOLDOWN_SECONDS
     allow_local_urls: bool = False
     allowed_domains: tuple[str, ...] = ()
     blocked_domains: tuple[str, ...] = ()
@@ -76,6 +79,8 @@ class Policy:
         object.__setattr__(self, "output_root", Path(self.output_root))
         if self.job_db_path is not None:
             object.__setattr__(self, "job_db_path", Path(self.job_db_path))
+        if self.egress_state_path is not None:
+            object.__setattr__(self, "egress_state_path", Path(self.egress_state_path))
         profiles = normalize_egress_profiles(self.egress_profiles)
         object.__setattr__(self, "egress_profiles", profiles)
 
@@ -95,9 +100,15 @@ class Policy:
         return cls(
             output_root=output_root,
             job_db_path=_env_path("YTDLP_MCP_JOB_DB_PATH"),
+            egress_state_path=_env_path("YTDLP_MCP_EGRESS_STATE_PATH"),
             proxy=_env_optional_string("YTDLP_MCP_PROXY"),
             require_proxy=_env_bool("YTDLP_MCP_REQUIRE_PROXY", default=False),
             active_egress_profile=_env_optional_string("YTDLP_MCP_ACTIVE_EGRESS_PROFILE"),
+            egress_cooldown_seconds=_env_int(
+                "YTDLP_MCP_EGRESS_COOLDOWN_SECONDS",
+                default=DEFAULT_EGRESS_COOLDOWN_SECONDS,
+                minimum=1,
+            ),
             allow_local_urls=_env_bool("YTDLP_MCP_ALLOW_LOCAL_URLS", default=False),
             allowed_domains=_env_list("YTDLP_MCP_ALLOWED_DOMAINS"),
             blocked_domains=_env_list("YTDLP_MCP_BLOCKED_DOMAINS"),
@@ -124,13 +135,16 @@ class Policy:
 
     def as_dict(self) -> dict[str, object]:
         job_db_path = self.resolved_job_db_path
+        egress_state_path = self.resolved_egress_state_path
         return {
             "output_root": str(self.resolved_output_root),
             "job_db_path": str(job_db_path) if job_db_path else None,
+            "egress_state_path": str(egress_state_path) if egress_state_path else None,
             "proxy": redact_proxy_url(self.proxy),
             "require_proxy": self.require_proxy,
             "active_egress_profile": self.active_egress_profile,
             "egress_profiles": [profile.as_dict() for profile in self.egress_profiles],
+            "egress_cooldown_seconds": self.egress_cooldown_seconds,
             "allow_local_urls": self.allow_local_urls,
             "allowed_domains": list(self.allowed_domains),
             "blocked_domains": list(self.blocked_domains),
@@ -144,6 +158,12 @@ class Policy:
         if self.job_db_path is None:
             return None
         return self.job_db_path.expanduser().resolve()
+
+    @property
+    def resolved_egress_state_path(self) -> Path | None:
+        if self.egress_state_path is None:
+            return None
+        return self.egress_state_path.expanduser().resolve()
 
     def active_egress(self) -> EgressProfile | None:
         return _find_egress_profile(self.egress_profiles, self.active_egress_profile)

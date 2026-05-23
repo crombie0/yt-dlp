@@ -10,6 +10,7 @@ from typing import Any
 
 from . import __version__
 from .diagnostics import build_environment_diagnostics
+from .egress_health import EgressHealthStore, classify_failure
 from .errors import DependencyError, DownloadError, JobCancelledError
 from .jobs import JobContext
 from .options import (
@@ -22,8 +23,9 @@ from .policy import Policy, validate_url
 
 
 class YtdlpService:
-    def __init__(self, policy: Policy):
+    def __init__(self, policy: Policy, *, egress_health: EgressHealthStore | None = None):
         self._policy = policy
+        self._egress_health = egress_health
 
     def versions(self) -> dict[str, Any]:
         yt_dlp_version: str | None = None
@@ -46,6 +48,7 @@ class YtdlpService:
 
     def probe(self, url: str, *, playlist_items: str | None = None) -> dict[str, Any]:
         validated_url = validate_url(url, self._policy)
+        self._enforce_egress_available(validated_url)
         yt_dlp = _load_yt_dlp()
         options = build_probe_options(self._policy, playlist_items=playlist_items)
         try:
@@ -53,6 +56,7 @@ class YtdlpService:
                 info = ydl.extract_info(validated_url, download=False)
                 return ydl.sanitize_info(info)
         except Exception as exc:
+            self._record_egress_failure(validated_url, exc)
             raise DownloadError("yt-dlp failed while probing the URL.", detail=str(exc)) from exc
 
     def list_formats(self, url: str, *, playlist_items: str | None = None) -> dict[str, Any]:
@@ -75,7 +79,8 @@ class YtdlpService:
         output_template: str | None = None,
         playlist_items: str | None = None,
     ) -> None:
-        validate_url(url, self._policy)
+        validated_url = validate_url(url, self._policy)
+        self._enforce_egress_available(validated_url)
         build_download_options(
             self._policy,
             kind=kind,
@@ -102,6 +107,7 @@ class YtdlpService:
     ) -> dict[str, Any]:
         context.check_cancelled()
         validated_url = validate_url(url, self._policy)
+        self._enforce_egress_available(validated_url)
         ensure_output_root(self._policy)
         yt_dlp = _load_yt_dlp()
         seen_files: set[str] = set()
@@ -134,6 +140,7 @@ class YtdlpService:
         except JobCancelledError:
             raise
         except Exception as exc:
+            self._record_egress_failure(validated_url, exc)
             raise DownloadError("yt-dlp failed while downloading media.", detail=str(exc)) from exc
 
         files = _discover_existing_files(
@@ -146,6 +153,23 @@ class YtdlpService:
             "files": files,
             "info": _compact_info(sanitized),
         }
+
+    def _enforce_egress_available(self, url: str) -> None:
+        if self._egress_health is not None:
+            self._egress_health.enforce_available(self._policy, url)
+
+    def _record_egress_failure(self, url: str, exc: BaseException) -> None:
+        if self._egress_health is None:
+            return
+        classification = classify_failure(str(exc))
+        if classification is None:
+            return
+        self._egress_health.record_failure(
+            self._policy,
+            url,
+            classification,
+            message=str(exc),
+        )
 
 
 class _JobLogger:

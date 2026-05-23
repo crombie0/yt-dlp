@@ -32,6 +32,9 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("list_egress_profiles", by_name)
         self.assertIn("get_egress_status", by_name)
         self.assertIn("test_egress_ip", by_name)
+        self.assertIn("get_egress_health", by_name)
+        self.assertIn("report_egress_failure", by_name)
+        self.assertIn("clear_egress_cooldown", by_name)
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
@@ -114,6 +117,16 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tool_payload["ok"])
         self.assertEqual(tool_payload["egress"]["active_egress_profile"], None)
         self.assertEqual(resource_payload["active_egress_profile"], None)
+
+    async def test_egress_health_reports_disabled_without_state_path(self):
+        tool_result = await self.server.call_tool("get_egress_health", {})
+        tool_payload = _tool_payload(tool_result)
+        resource = await self.server.read_resource("ytdlp://egress/health")
+        resource_payload = json.loads(resource[0].content)
+
+        self.assertTrue(tool_payload["ok"])
+        self.assertFalse(tool_payload["egress_health"]["enabled"])
+        self.assertFalse(resource_payload["enabled"])
 
     async def test_jobs_resource_lists_known_jobs(self):
         resource = await self.server.read_resource("ytdlp://jobs")

@@ -9,6 +9,7 @@ from typing import Any
 
 from .errors import PolicyError
 from .policy import (
+    DEFAULT_EGRESS_COOLDOWN_SECONDS,
     DEFAULT_MAX_CONCURRENT_JOBS,
     DEFAULT_MAX_LOG_LINES,
     DEFAULT_MAX_PLAYLIST_ITEMS,
@@ -20,10 +21,12 @@ CONFIG_PATH_ENV = "YTDLP_MCP_CONFIG"
 POLICY_KEYS = {
     "output_root",
     "job_db_path",
+    "egress_state_path",
     "proxy",
     "require_proxy",
     "active_egress_profile",
     "egress_profiles",
+    "egress_cooldown_seconds",
     "allow_local_urls",
     "allowed_domains",
     "blocked_domains",
@@ -34,9 +37,11 @@ POLICY_KEYS = {
 ENV_OVERRIDES = {
     "output_root": "YTDLP_MCP_OUTPUT_ROOT",
     "job_db_path": "YTDLP_MCP_JOB_DB_PATH",
+    "egress_state_path": "YTDLP_MCP_EGRESS_STATE_PATH",
     "proxy": "YTDLP_MCP_PROXY",
     "require_proxy": "YTDLP_MCP_REQUIRE_PROXY",
     "active_egress_profile": "YTDLP_MCP_ACTIVE_EGRESS_PROFILE",
+    "egress_cooldown_seconds": "YTDLP_MCP_EGRESS_COOLDOWN_SECONDS",
     "allow_local_urls": "YTDLP_MCP_ALLOW_LOCAL_URLS",
     "allowed_domains": "YTDLP_MCP_ALLOWED_DOMAINS",
     "blocked_domains": "YTDLP_MCP_BLOCKED_DOMAINS",
@@ -78,10 +83,12 @@ def load_configured_policy(
     values: dict[str, Any] = {
         "output_root": DEFAULT_OUTPUT_ROOT,
         "job_db_path": None,
+        "egress_state_path": None,
         "proxy": None,
         "require_proxy": False,
         "active_egress_profile": None,
         "egress_profiles": [],
+        "egress_cooldown_seconds": DEFAULT_EGRESS_COOLDOWN_SECONDS,
         "allow_local_urls": False,
         "allowed_domains": [],
         "blocked_domains": [],
@@ -103,6 +110,7 @@ def load_configured_policy(
     policy = Policy(
         output_root=Path(_string_value(values["output_root"], "output_root")),
         job_db_path=_optional_path_value(values["job_db_path"], "job_db_path"),
+        egress_state_path=_optional_path_value(values["egress_state_path"], "egress_state_path"),
         proxy=_optional_string_value(values["proxy"], "proxy"),
         require_proxy=_bool_value(values["require_proxy"], "require_proxy"),
         active_egress_profile=_optional_string_value(
@@ -110,6 +118,10 @@ def load_configured_policy(
             "active_egress_profile",
         ),
         egress_profiles=_egress_profiles_value(values["egress_profiles"]),
+        egress_cooldown_seconds=_int_value(
+            values["egress_cooldown_seconds"],
+            "egress_cooldown_seconds",
+        ),
         allow_local_urls=_bool_value(values["allow_local_urls"], "allow_local_urls"),
         allowed_domains=_list_value(values["allowed_domains"], "allowed_domains"),
         blocked_domains=_list_value(values["blocked_domains"], "blocked_domains"),
@@ -212,3 +224,5 @@ def _validate_positive_policy(policy: Policy) -> None:
         raise PolicyError("max_concurrent_jobs must be at least 1.")
     if policy.max_log_lines < 1:
         raise PolicyError("max_log_lines must be at least 1.")
+    if policy.egress_cooldown_seconds < 1:
+        raise PolicyError("egress_cooldown_seconds must be at least 1.")

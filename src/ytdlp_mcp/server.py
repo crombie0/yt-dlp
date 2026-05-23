@@ -10,6 +10,7 @@ from .config import load_configured_policy
 from .egress import get_egress_status as build_egress_status
 from .egress import list_egress_profiles as build_egress_profiles
 from .egress import test_egress_ip as test_egress_ip_request
+from .egress_health import EgressHealthStore, classify_failure
 from .errors import DependencyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
@@ -36,7 +37,12 @@ def create_server(
     effective_config_source = config_source or (
         loaded_config.source if loaded_config else {"config_loaded": False, "injected_policy": True}
     )
-    service = YtdlpService(effective_policy)
+    egress_health = (
+        EgressHealthStore(effective_policy.resolved_egress_state_path)
+        if effective_policy.resolved_egress_state_path is not None
+        else None
+    )
+    service = YtdlpService(effective_policy, egress_health=egress_health)
     jobs = JobStore(effective_policy)
     mcp = FastMCP("yt-dlp")
     read_only_network = ToolAnnotations(
@@ -130,7 +136,87 @@ def create_server(
     def get_egress_status() -> dict[str, Any]:
         """Return the active egress profile and blocking issues."""
         try:
-            return {"ok": True, "egress": build_egress_status(effective_policy)}
+            egress = build_egress_status(effective_policy)
+            if egress_health is not None:
+                egress["health"] = egress_health.status(effective_policy)
+            return {"ok": True, "egress": egress}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def get_egress_health() -> dict[str, Any]:
+        """Return persisted egress cooldowns and recent failure events."""
+        try:
+            if egress_health is None:
+                return {
+                    "ok": True,
+                    "egress_health": {
+                        "enabled": False,
+                        "detail": "egress_state_path is not configured",
+                    },
+                }
+            return {"ok": True, "egress_health": egress_health.status(effective_policy)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=mutates_jobs)
+    def report_egress_failure(
+        url: str,
+        message: str,
+    ) -> dict[str, Any]:
+        """Record an egress failure and apply cooldown for block-like errors."""
+        try:
+            if egress_health is None:
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "EGRESS_HEALTH_DISABLED",
+                        "message": "egress_state_path is not configured.",
+                    },
+                }
+            classification = classify_failure(message)
+            if classification is None:
+                return {
+                    "ok": True,
+                    "classification": None,
+                    "event": None,
+                }
+            event = egress_health.record_failure(
+                effective_policy,
+                url,
+                classification,
+                message=message,
+            )
+            return {
+                "ok": True,
+                "classification": classification.as_dict(),
+                "event": event,
+            }
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=mutates_jobs)
+    def clear_egress_cooldown(
+        profile_name: str | None = None,
+        domain: str | None = None,
+    ) -> dict[str, Any]:
+        """Clear persisted egress cooldowns by profile and/or domain."""
+        try:
+            if egress_health is None:
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "EGRESS_HEALTH_DISABLED",
+                        "message": "egress_state_path is not configured.",
+                    },
+                }
+            return {
+                "ok": True,
+                "result": egress_health.clear_cooldowns(
+                    profile_name=profile_name,
+                    domain=domain,
+                ),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -354,7 +440,21 @@ def create_server(
 
     @mcp.resource("ytdlp://egress/status")
     def egress_status_resource() -> str:
-        return _json(build_egress_status(effective_policy))
+        egress = build_egress_status(effective_policy)
+        if egress_health is not None:
+            egress["health"] = egress_health.status(effective_policy)
+        return _json(egress)
+
+    @mcp.resource("ytdlp://egress/health")
+    def egress_health_resource() -> str:
+        if egress_health is None:
+            return _json(
+                {
+                    "enabled": False,
+                    "detail": "egress_state_path is not configured",
+                }
+            )
+        return _json(egress_health.status(effective_policy))
 
     @mcp.prompt()
     def plan_download(goal: str, url: str) -> str:

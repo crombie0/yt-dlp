@@ -17,6 +17,7 @@ class ConfigTests(unittest.TestCase):
                     {
                         "output_root": str(output_root),
                         "job_db_path": str(Path(root) / "jobs.sqlite3"),
+                        "egress_state_path": str(Path(root) / "egress-state.json"),
                         "proxy": "socks5h://proxy.example.com:1080",
                         "require_proxy": True,
                         "active_egress_profile": "vpn",
@@ -32,6 +33,7 @@ class ConfigTests(unittest.TestCase):
                         "max_playlist_items": 3,
                         "max_concurrent_jobs": 1,
                         "max_log_lines": 10,
+                        "egress_cooldown_seconds": 120,
                     }
                 ),
                 encoding="utf-8",
@@ -44,6 +46,10 @@ class ConfigTests(unittest.TestCase):
                 result.policy.resolved_job_db_path,
                 (Path(root) / "jobs.sqlite3").resolve(),
             )
+            self.assertEqual(
+                result.policy.resolved_egress_state_path,
+                (Path(root) / "egress-state.json").resolve(),
+            )
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.proxy, "socks5h://proxy.example.com:1080")
             self.assertTrue(result.policy.require_proxy)
@@ -52,6 +58,7 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(result.policy.allowed_domains, ("example.com", "media.example.com"))
             self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
             self.assertEqual(result.policy.max_playlist_items, 3)
+            self.assertEqual(result.policy.egress_cooldown_seconds, 120)
             self.assertTrue(result.source["config_loaded"])
             self.assertEqual(result.source["config_path"], str(config.resolve()))
 
