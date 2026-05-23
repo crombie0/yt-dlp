@@ -57,6 +57,8 @@ Example MCP client configuration:
 - `list_jobs`: Return all jobs known to the current server process.
 - `get_job_status`: Inspect job progress, result, errors, and log tail.
 - `cancel_job`: Request cancellation for a running job.
+- `get_job_artifacts`: Return a safe manifest for files produced by a job.
+- `preview_artifact`: Return a bounded text/base64 preview for a job artifact.
 
 ## Resources
 
@@ -65,6 +67,8 @@ Example MCP client configuration:
 - `ytdlp://jobs/{job_id}/log`
 - `ytdlp://jobs/{job_id}/info`
 - `ytdlp://jobs/{job_id}/files`
+- `ytdlp://jobs/{job_id}/artifacts`
+- `ytdlp://jobs/{job_id}/artifacts/{index}/preview`
 - `ytdlp://config/effective-policy`
 
 ## Safety Model

@@ -4,6 +4,8 @@ import argparse
 import json
 from typing import Any
 
+from .artifacts import build_artifact_manifest
+from .artifacts import preview_artifact as preview_artifact_payload
 from .errors import DependencyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
@@ -208,6 +210,41 @@ def create_server(policy: Policy | None = None) -> Any:
         except Exception as exc:
             return to_error_payload(exc)
 
+    @mcp.tool(annotations=read_only_local)
+    def get_job_artifacts(job_id: str) -> dict[str, Any]:
+        """Return a manifest of files produced by a job."""
+        try:
+            record = jobs.get(job_id)
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "artifacts": build_artifact_manifest(effective_policy, job_id, record.files),
+            }
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def preview_artifact(
+        job_id: str,
+        index: int,
+        max_bytes: int = 16384,
+    ) -> dict[str, Any]:
+        """Return a bounded preview for a job artifact."""
+        try:
+            record = jobs.get(job_id)
+            return {
+                "ok": True,
+                "artifact": preview_artifact_payload(
+                    effective_policy,
+                    job_id,
+                    record.files,
+                    index,
+                    max_bytes=max_bytes,
+                ),
+            }
+        except Exception as exc:
+            return to_error_payload(exc)
+
     @mcp.resource("ytdlp://jobs/{job_id}/status")
     def job_status_resource(job_id: str) -> str:
         return _json(jobs.get(job_id).public_dict(include_logs=False))
@@ -223,6 +260,21 @@ def create_server(policy: Policy | None = None) -> Any:
     @mcp.resource("ytdlp://jobs/{job_id}/files")
     def job_files_resource(job_id: str) -> str:
         return _json({"job_id": job_id, "files": jobs.get(job_id).files})
+
+    @mcp.resource("ytdlp://jobs/{job_id}/artifacts")
+    def job_artifacts_resource(job_id: str) -> str:
+        record = jobs.get(job_id)
+        return _json(
+            {
+                "job_id": job_id,
+                "artifacts": build_artifact_manifest(effective_policy, job_id, record.files),
+            }
+        )
+
+    @mcp.resource("ytdlp://jobs/{job_id}/artifacts/{index}/preview")
+    def artifact_preview_resource(job_id: str, index: str) -> str:
+        record = jobs.get(job_id)
+        return _json(preview_artifact_payload(effective_policy, job_id, record.files, int(index)))
 
     @mcp.resource("ytdlp://jobs")
     def jobs_resource() -> str:

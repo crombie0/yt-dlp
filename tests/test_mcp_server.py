@@ -31,10 +31,13 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
+        self.assertIn("get_job_artifacts", by_name)
+        self.assertIn("preview_artifact", by_name)
         self.assertTrue(by_name["probe_url"].annotations.readOnlyHint)
         self.assertFalse(by_name["start_download"].annotations.readOnlyHint)
         self.assertTrue(by_name["start_download"].annotations.openWorldHint)
         self.assertTrue(by_name["list_jobs"].annotations.readOnlyHint)
+        self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
 
     async def test_suggest_format_call_returns_structured_payload(self):
         result = await self.server.call_tool("suggest_format", {"goal": "audio mp3"})
@@ -67,6 +70,13 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(resource[0].content)
 
         self.assertEqual(payload, {"jobs": []})
+
+    async def test_artifact_tool_reports_missing_job(self):
+        result = await self.server.call_tool("get_job_artifacts", {"job_id": "missing"})
+        payload = _tool_payload(result)
+
+        self.assertFalse(payload["ok"])
+        self.assertEqual(payload["error"]["code"], "JOB_NOT_FOUND")
 
 
 @unittest.skipUnless(MCP_AVAILABLE, "mcp package is not installed")
