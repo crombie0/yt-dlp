@@ -67,6 +67,23 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["max_playlist_items"], 20)
         self.assertEqual(payload["output_root"], str(Path("/tmp/ytdlp-mcp-test").resolve()))
 
+    async def test_config_source_resource_is_readable(self):
+        server = create_server(
+            Policy(output_root=Path("/tmp/ytdlp-mcp-config-test")),
+            config_source={
+                "config_path": "/tmp/ytdlp-mcp.json",
+                "config_loaded": True,
+                "env_overrides": ["YTDLP_MCP_OUTPUT_ROOT"],
+            },
+        )
+
+        resource = await server.read_resource("ytdlp://config/source")
+        payload = json.loads(resource[0].content)
+
+        self.assertTrue(payload["config_loaded"])
+        self.assertEqual(payload["config_path"], "/tmp/ytdlp-mcp.json")
+        self.assertEqual(payload["env_overrides"], ["YTDLP_MCP_OUTPUT_ROOT"])
+
     async def test_diagnostics_tool_and_resource_are_readable(self):
         tool_result = await self.server.call_tool("diagnose_environment", {})
         tool_payload = _tool_payload(tool_result)

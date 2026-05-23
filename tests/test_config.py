@@ -1,0 +1,106 @@
+import json
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from ytdlp_mcp.config import load_configured_policy
+from ytdlp_mcp.errors import PolicyError
+
+
+class ConfigTests(unittest.TestCase):
+    def test_loads_policy_from_json_config(self):
+        with TemporaryDirectory() as root:
+            config = Path(root) / "ytdlp-mcp.json"
+            output_root = Path(root) / "downloads"
+            config.write_text(
+                json.dumps(
+                    {
+                        "output_root": str(output_root),
+                        "allow_local_urls": True,
+                        "max_playlist_items": 3,
+                        "max_concurrent_jobs": 1,
+                        "max_log_lines": 10,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = load_configured_policy(config, env={})
+
+            self.assertEqual(result.policy.resolved_output_root, output_root.resolve())
+            self.assertTrue(result.policy.allow_local_urls)
+            self.assertEqual(result.policy.max_playlist_items, 3)
+            self.assertTrue(result.source["config_loaded"])
+            self.assertEqual(result.source["config_path"], str(config.resolve()))
+
+    def test_env_overrides_json_config(self):
+        with TemporaryDirectory() as root:
+            config = Path(root) / "ytdlp-mcp.json"
+            file_output_root = Path(root) / "file-downloads"
+            env_output_root = Path(root) / "env-downloads"
+            config.write_text(
+                json.dumps(
+                    {
+                        "output_root": str(file_output_root),
+                        "allow_local_urls": False,
+                        "max_playlist_items": 3,
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            result = load_configured_policy(
+                config,
+                env={
+                    "YTDLP_MCP_OUTPUT_ROOT": str(env_output_root),
+                    "YTDLP_MCP_ALLOW_LOCAL_URLS": "true",
+                    "YTDLP_MCP_MAX_PLAYLIST_ITEMS": "5",
+                },
+            )
+
+            self.assertEqual(result.policy.resolved_output_root, env_output_root.resolve())
+            self.assertTrue(result.policy.allow_local_urls)
+            self.assertEqual(result.policy.max_playlist_items, 5)
+            self.assertEqual(
+                result.source["env_overrides"],
+                [
+                    "YTDLP_MCP_OUTPUT_ROOT",
+                    "YTDLP_MCP_ALLOW_LOCAL_URLS",
+                    "YTDLP_MCP_MAX_PLAYLIST_ITEMS",
+                ],
+            )
+
+    def test_rejects_unknown_config_keys(self):
+        with TemporaryDirectory() as root:
+            config = Path(root) / "ytdlp-mcp.json"
+            config.write_text(
+                json.dumps({"output_root": root, "raw_options": {}}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PolicyError):
+                load_configured_policy(config, env={})
+
+    def test_rejects_invalid_integer_values(self):
+        with TemporaryDirectory() as root:
+            config = Path(root) / "ytdlp-mcp.json"
+            config.write_text(
+                json.dumps({"output_root": root, "max_concurrent_jobs": 0}),
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(PolicyError):
+                load_configured_policy(config, env={})
+
+    def test_config_path_can_come_from_env(self):
+        with TemporaryDirectory() as root:
+            config = Path(root) / "ytdlp-mcp.json"
+            config.write_text(json.dumps({"output_root": root}), encoding="utf-8")
+
+            result = load_configured_policy(env={"YTDLP_MCP_CONFIG": str(config)})
+
+            self.assertEqual(result.policy.resolved_output_root, Path(root).resolve())
+
+
+if __name__ == "__main__":
+    unittest.main()

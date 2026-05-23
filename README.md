@@ -29,6 +29,23 @@ python -m pip install -e ".[dev]"
 YTDLP_MCP_OUTPUT_ROOT="$PWD/downloads" python -m ytdlp_mcp --transport stdio
 ```
 
+You can also use a JSON config file. Environment variables override config file
+values when both are present.
+
+```json
+{
+  "output_root": "/absolute/path/to/downloads",
+  "allow_local_urls": false,
+  "max_playlist_items": 20,
+  "max_concurrent_jobs": 2,
+  "max_log_lines": 200
+}
+```
+
+```bash
+python -m ytdlp_mcp --config /absolute/path/to/ytdlp-mcp.json --transport stdio
+```
+
 Example MCP client configuration:
 
 ```json
@@ -71,6 +88,7 @@ Example MCP client configuration:
 - `ytdlp://jobs/{job_id}/artifacts`
 - `ytdlp://jobs/{job_id}/artifacts/{index}/preview`
 - `ytdlp://config/effective-policy`
+- `ytdlp://config/source`
 - `ytdlp://diagnostics/environment`
 
 ## Safety Model

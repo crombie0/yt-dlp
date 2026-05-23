@@ -6,6 +6,7 @@ from typing import Any
 
 from .artifacts import build_artifact_manifest
 from .artifacts import preview_artifact as preview_artifact_payload
+from .config import load_configured_policy
 from .errors import DependencyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
@@ -13,7 +14,11 @@ from .policy import Policy
 from .service import YtdlpService
 
 
-def create_server(policy: Policy | None = None) -> Any:
+def create_server(
+    policy: Policy | None = None,
+    *,
+    config_source: dict[str, Any] | None = None,
+) -> Any:
     try:
         from mcp.server.fastmcp import FastMCP
         from mcp.types import ToolAnnotations
@@ -23,7 +28,11 @@ def create_server(policy: Policy | None = None) -> Any:
             detail=str(exc),
         ) from exc
 
-    effective_policy = policy or Policy.from_env()
+    loaded_config = None if policy else load_configured_policy()
+    effective_policy = policy or loaded_config.policy
+    effective_config_source = config_source or (
+        loaded_config.source if loaded_config else {"config_loaded": False, "injected_policy": True}
+    )
     service = YtdlpService(effective_policy)
     jobs = JobStore(effective_policy)
     mcp = FastMCP("yt-dlp")
@@ -292,6 +301,10 @@ def create_server(policy: Policy | None = None) -> Any:
     def policy_resource() -> str:
         return _json(effective_policy.as_dict())
 
+    @mcp.resource("ytdlp://config/source")
+    def config_source_resource() -> str:
+        return _json(effective_config_source)
+
     @mcp.resource("ytdlp://diagnostics/environment")
     def diagnostics_resource() -> str:
         return _json(service.diagnostics())
@@ -321,10 +334,12 @@ def create_server(policy: Policy | None = None) -> Any:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the yt-dlp MCP server.")
+    parser.add_argument("--config", help="Path to a JSON config file.")
     parser.add_argument("--transport", default="stdio", choices=["stdio", "streamable-http"])
     args = parser.parse_args(argv)
 
-    server = create_server()
+    loaded_config = load_configured_policy(args.config)
+    server = create_server(loaded_config.policy, config_source=loaded_config.source)
     server.run(transport=args.transport)
     return 0
 
