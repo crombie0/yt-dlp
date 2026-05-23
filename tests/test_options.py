@@ -1,6 +1,7 @@
 import unittest
 from pathlib import Path
 
+from ytdlp_mcp.errors import PolicyError
 from ytdlp_mcp.options import (
     build_download_options,
     build_probe_options,
@@ -18,12 +19,33 @@ class OptionsTests(unittest.TestCase):
         options = build_probe_options(self.policy)
         self.assertEqual(options["playlist_items"], "1-5")
 
+    def test_probe_options_include_configured_proxy(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            proxy="socks5h://127.0.0.1:1080",
+        )
+        options = build_probe_options(policy)
+        self.assertEqual(options["proxy"], "socks5h://127.0.0.1:1080")
+
+    def test_require_proxy_rejects_direct_probe_options(self):
+        policy = Policy(output_root=Path("/tmp/ytdlp-mcp-test"), require_proxy=True)
+        with self.assertRaises(PolicyError):
+            build_probe_options(policy)
+
     def test_video_download_options_use_safe_defaults(self):
         options = build_download_options(self.policy, kind="video", playlist_items="1")
         self.assertEqual(options["format"], "bv*+ba/b")
         self.assertEqual(options["merge_output_format"], "mp4")
         self.assertTrue(options["restrictfilenames"])
         self.assertEqual(options["paths"]["home"], str(Path("/tmp/ytdlp-mcp-test").resolve()))
+
+    def test_download_options_include_configured_proxy(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            proxy="http://proxy.example.com:8080",
+        )
+        options = build_download_options(policy, kind="video", playlist_items="1")
+        self.assertEqual(options["proxy"], "http://proxy.example.com:8080")
 
     def test_audio_download_options_add_postprocessor(self):
         options = build_download_options(self.policy, kind="audio", audio_format="mp3")

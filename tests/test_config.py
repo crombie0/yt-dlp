@@ -17,6 +17,8 @@ class ConfigTests(unittest.TestCase):
                     {
                         "output_root": str(output_root),
                         "job_db_path": str(Path(root) / "jobs.sqlite3"),
+                        "proxy": "socks5h://proxy.example.com:1080",
+                        "require_proxy": True,
                         "allow_local_urls": True,
                         "allowed_domains": ["example.com", "media.example.com"],
                         "blocked_domains": ["ads.example.com"],
@@ -36,6 +38,8 @@ class ConfigTests(unittest.TestCase):
                 (Path(root) / "jobs.sqlite3").resolve(),
             )
             self.assertTrue(result.policy.allow_local_urls)
+            self.assertEqual(result.policy.proxy, "socks5h://proxy.example.com:1080")
+            self.assertTrue(result.policy.require_proxy)
             self.assertEqual(result.policy.allowed_domains, ("example.com", "media.example.com"))
             self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
             self.assertEqual(result.policy.max_playlist_items, 3)
@@ -64,6 +68,8 @@ class ConfigTests(unittest.TestCase):
                 env={
                     "YTDLP_MCP_OUTPUT_ROOT": str(env_output_root),
                     "YTDLP_MCP_JOB_DB_PATH": str(env_job_db_path),
+                    "YTDLP_MCP_PROXY": "http://env-proxy.example.com:8080",
+                    "YTDLP_MCP_REQUIRE_PROXY": "true",
                     "YTDLP_MCP_ALLOW_LOCAL_URLS": "true",
                     "YTDLP_MCP_ALLOWED_DOMAINS": "example.com, youtu.be",
                     "YTDLP_MCP_BLOCKED_DOMAINS": "ads.example.com",
@@ -73,6 +79,8 @@ class ConfigTests(unittest.TestCase):
 
             self.assertEqual(result.policy.resolved_output_root, env_output_root.resolve())
             self.assertEqual(result.policy.resolved_job_db_path, env_job_db_path.resolve())
+            self.assertEqual(result.policy.proxy, "http://env-proxy.example.com:8080")
+            self.assertTrue(result.policy.require_proxy)
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.max_playlist_items, 5)
             self.assertEqual(result.policy.allowed_domains, ("example.com", "youtu.be"))
@@ -82,6 +90,8 @@ class ConfigTests(unittest.TestCase):
                 [
                     "YTDLP_MCP_OUTPUT_ROOT",
                     "YTDLP_MCP_JOB_DB_PATH",
+                    "YTDLP_MCP_PROXY",
+                    "YTDLP_MCP_REQUIRE_PROXY",
                     "YTDLP_MCP_ALLOW_LOCAL_URLS",
                     "YTDLP_MCP_ALLOWED_DOMAINS",
                     "YTDLP_MCP_BLOCKED_DOMAINS",

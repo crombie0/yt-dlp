@@ -18,6 +18,8 @@ DEFAULT_MAX_LOG_LINES = 200
 class Policy:
     output_root: Path = field(default_factory=lambda: Path(DEFAULT_OUTPUT_ROOT))
     job_db_path: Path | None = None
+    proxy: str | None = None
+    require_proxy: bool = False
     allow_local_urls: bool = False
     allowed_domains: tuple[str, ...] = ()
     blocked_domains: tuple[str, ...] = ()
@@ -29,6 +31,7 @@ class Policy:
         object.__setattr__(self, "output_root", Path(self.output_root))
         if self.job_db_path is not None:
             object.__setattr__(self, "job_db_path", Path(self.job_db_path))
+        object.__setattr__(self, "proxy", normalize_proxy_url(self.proxy))
         object.__setattr__(self, "allowed_domains", normalize_domain_list(self.allowed_domains))
         object.__setattr__(self, "blocked_domains", normalize_domain_list(self.blocked_domains))
 
@@ -38,6 +41,8 @@ class Policy:
         return cls(
             output_root=output_root,
             job_db_path=_env_path("YTDLP_MCP_JOB_DB_PATH"),
+            proxy=_env_optional_string("YTDLP_MCP_PROXY"),
+            require_proxy=_env_bool("YTDLP_MCP_REQUIRE_PROXY", default=False),
             allow_local_urls=_env_bool("YTDLP_MCP_ALLOW_LOCAL_URLS", default=False),
             allowed_domains=_env_list("YTDLP_MCP_ALLOWED_DOMAINS"),
             blocked_domains=_env_list("YTDLP_MCP_BLOCKED_DOMAINS"),
@@ -67,6 +72,8 @@ class Policy:
         return {
             "output_root": str(self.resolved_output_root),
             "job_db_path": str(job_db_path) if job_db_path else None,
+            "proxy": redact_proxy_url(self.proxy),
+            "require_proxy": self.require_proxy,
             "allow_local_urls": self.allow_local_urls,
             "allowed_domains": list(self.allowed_domains),
             "blocked_domains": list(self.blocked_domains),
@@ -123,6 +130,58 @@ def normalize_domain_list(domains: object) -> tuple[str, ...]:
             normalized.append(domain)
             seen.add(domain)
     return tuple(normalized)
+
+
+def normalize_proxy_url(proxy: object) -> str | None:
+    if proxy is None:
+        return None
+    if not isinstance(proxy, str):
+        raise PolicyError("proxy must be a string.")
+
+    value = proxy.strip()
+    if not value:
+        return None
+    if "\x00" in value:
+        raise PolicyError("proxy cannot contain NUL bytes.")
+
+    parsed = urlparse(value)
+    allowed_schemes = {"http", "https", "socks4", "socks4a", "socks5", "socks5h"}
+    if parsed.scheme not in allowed_schemes:
+        allowed = ", ".join(sorted(allowed_schemes))
+        raise PolicyError(f"proxy scheme must be one of: {allowed}.")
+    if not parsed.hostname:
+        raise PolicyError("proxy must include a hostname.")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise PolicyError("proxy port must be between 1 and 65535.") from exc
+    if port is not None and not 1 <= port <= 65535:
+        raise PolicyError("proxy port must be between 1 and 65535.")
+
+    return value
+
+
+def redact_proxy_url(proxy: str | None) -> str | None:
+    if not proxy:
+        return None
+
+    parsed = urlparse(proxy)
+    if parsed.username is None and parsed.password is None:
+        return proxy
+
+    host = parsed.hostname or ""
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    netloc = f"<redacted>@{host}"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl()
+
+
+def require_outbound_proxy(policy: Policy) -> str | None:
+    if policy.require_proxy and not policy.proxy:
+        raise PolicyError("Outbound proxy is required by policy but no proxy is configured.")
+    return policy.proxy
 
 
 def validate_playlist_items(playlist_items: str | None, policy: Policy) -> str | None:
@@ -239,6 +298,13 @@ def _env_bool(name: str, *, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_optional_string(name: str) -> str | None:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return None
+    return value
 
 
 def _env_int(name: str, *, default: int, minimum: int) -> int:

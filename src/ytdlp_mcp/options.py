@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Any
 
 from .errors import PolicyError
-from .policy import Policy, validate_output_template, validate_playlist_items
+from .policy import (
+    Policy,
+    require_outbound_proxy,
+    validate_output_template,
+    validate_playlist_items,
+)
 
 ProgressHook = Callable[[dict[str, Any]], None]
 
@@ -15,7 +20,7 @@ ALLOWED_SUBTITLE_FORMATS = {"best", "srt", "vtt", "ass"}
 
 
 def build_probe_options(policy: Policy, *, playlist_items: str | None = None) -> dict[str, Any]:
-    return {
+    options = {
         "quiet": True,
         "no_warnings": False,
         "skip_download": True,
@@ -23,6 +28,8 @@ def build_probe_options(policy: Policy, *, playlist_items: str | None = None) ->
         "playlist_items": validate_playlist_items(playlist_items, policy),
         "noplaylist": False,
     }
+    _apply_proxy_options(options, policy)
+    return options
 
 
 def build_download_options(
@@ -54,6 +61,7 @@ def build_download_options(
         "playlist_items": validate_playlist_items(playlist_items, policy),
         "progress_hooks": [progress_hook] if progress_hook else [],
     }
+    _apply_proxy_options(options, policy)
     if logger is not None:
         options["logger"] = logger
 
@@ -145,6 +153,12 @@ def ensure_output_root(policy: Policy) -> Path:
     root = policy.resolved_output_root
     root.mkdir(parents=True, exist_ok=True)
     return root
+
+
+def _apply_proxy_options(options: dict[str, Any], policy: Policy) -> None:
+    proxy = require_outbound_proxy(policy)
+    if proxy:
+        options["proxy"] = proxy
 
 
 def _formats_from_info(info: dict[str, Any]) -> list[dict[str, Any]]:

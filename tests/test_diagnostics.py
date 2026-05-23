@@ -99,6 +99,28 @@ class DiagnosticsTests(unittest.TestCase):
             self.assertEqual(checks["policy"]["status"], "warning")
             self.assertIn("no allowed domain list", checks["policy"]["detail"])
 
+    def test_reports_error_when_proxy_is_required_but_missing(self):
+        with TemporaryDirectory() as root:
+            policy = Policy(
+                output_root=Path(root),
+                allowed_domains=("example.com",),
+                require_proxy=True,
+            )
+            report = build_environment_diagnostics(
+                policy,
+                {
+                    "python": "3.13",
+                    "mcp": "1.27.1",
+                    "yt_dlp": "2026.03.17",
+                    "ffmpeg": "ffmpeg version 8",
+                },
+            )
+
+            checks = {check["name"]: check for check in report["checks"]}
+            self.assertEqual(checks["policy"]["status"], "error")
+            self.assertIn("proxy is required", checks["policy"]["detail"])
+            self.assertEqual(report["status"], "error")
+
     def test_reports_job_db_warning_for_missing_parent(self):
         with TemporaryDirectory() as root:
             policy = Policy(

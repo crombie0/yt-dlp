@@ -36,6 +36,8 @@ values when both are present.
 {
   "output_root": "/absolute/path/to/downloads",
   "job_db_path": "/absolute/path/to/ytdlp-mcp-jobs.sqlite3",
+  "proxy": null,
+  "require_proxy": false,
   "allow_local_urls": false,
   "allowed_domains": ["youtube.com", "youtu.be"],
   "blocked_domains": [],
@@ -105,6 +107,12 @@ Set `allowed_domains` to restrict downloads to known hosts, and `blocked_domains
 to deny specific hosts or subdomains. Environment overrides are available as
 `YTDLP_MCP_ALLOWED_DOMAINS` and `YTDLP_MCP_BLOCKED_DOMAINS` using comma-separated
 domain lists.
+Set `proxy` or `YTDLP_MCP_PROXY` to route yt-dlp network requests through an
+HTTP(S) or SOCKS proxy, for example `socks5h://127.0.0.1:1080`. Set
+`require_proxy` or `YTDLP_MCP_REQUIRE_PROXY=true` to fail probe/download calls
+unless a proxy is configured. This prevents accidental direct egress, but it
+does not guarantee anonymity; the proxy/VPN provider and destination site may
+still log traffic.
 
 Use this software only for media you are allowed to access and download.
 

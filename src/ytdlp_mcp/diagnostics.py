@@ -135,7 +135,10 @@ def _job_db_check(job_db_path: Path | None) -> dict[str, Any]:
 
 
 def _policy_check(policy: Policy) -> dict[str, Any]:
+    errors: list[str] = []
     warnings: list[str] = []
+    if policy.require_proxy and not policy.proxy:
+        errors.append("outbound proxy is required but not configured")
     if policy.allow_local_urls:
         warnings.append("local/private URLs are allowed")
     if not policy.allowed_domains:
@@ -149,11 +152,15 @@ def _policy_check(policy: Policy) -> dict[str, Any]:
     if policy.max_concurrent_jobs > (os.cpu_count() or 1) * 2:
         warnings.append("concurrent job limit is high for this host")
 
+    detail_parts = errors + warnings
+    status = ERROR if errors else WARNING if warnings else OK
     return {
         "name": "policy",
-        "status": WARNING if warnings else OK,
+        "status": status,
         "required": True,
-        "detail": "; ".join(warnings) if warnings else "policy is within conservative defaults",
+        "detail": (
+            "; ".join(detail_parts) if detail_parts else "policy is within conservative defaults"
+        ),
     }
 
 

@@ -4,6 +4,8 @@ from pathlib import Path
 from ytdlp_mcp.errors import PolicyError
 from ytdlp_mcp.policy import (
     Policy,
+    normalize_proxy_url,
+    redact_proxy_url,
     safe_child_path,
     validate_output_template,
     validate_playlist_items,
@@ -73,6 +75,22 @@ class PolicyTests(unittest.TestCase):
     def test_rejects_invalid_domain_policy_entries(self):
         with self.assertRaises(PolicyError):
             Policy(output_root=Path("/tmp/ytdlp-mcp-test"), allowed_domains=("https://example.com",))
+
+    def test_accepts_supported_proxy_schemes(self):
+        self.assertEqual(
+            normalize_proxy_url("socks5h://127.0.0.1:1080"),
+            "socks5h://127.0.0.1:1080",
+        )
+
+    def test_rejects_invalid_proxy_scheme(self):
+        with self.assertRaises(PolicyError):
+            Policy(output_root=Path("/tmp/ytdlp-mcp-test"), proxy="file:///tmp/socket")
+
+    def test_redacts_proxy_credentials(self):
+        self.assertEqual(
+            redact_proxy_url("socks5h://user:pass@proxy.example.com:1080"),
+            "socks5h://<redacted>@proxy.example.com:1080",
+        )
 
     def test_playlist_range_is_bounded(self):
         self.assertEqual(validate_playlist_items("1-3", self.policy), "1-3")
