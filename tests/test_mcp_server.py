@@ -29,6 +29,9 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         by_name = {tool.name: tool for tool in tools}
 
         self.assertIn("diagnose_environment", by_name)
+        self.assertIn("list_egress_profiles", by_name)
+        self.assertIn("get_egress_status", by_name)
+        self.assertIn("test_egress_ip", by_name)
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
@@ -40,6 +43,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(by_name["list_jobs"].annotations.readOnlyHint)
         self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
         self.assertTrue(by_name["diagnose_environment"].annotations.readOnlyHint)
+        self.assertTrue(by_name["list_egress_profiles"].annotations.readOnlyHint)
 
     async def test_suggest_format_call_returns_structured_payload(self):
         result = await self.server.call_tool("suggest_format", {"goal": "audio mp3"})
@@ -100,6 +104,16 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
             resource_payload["policy"]["output_root"],
             str(Path("/tmp/ytdlp-mcp-test").resolve()),
         )
+
+    async def test_egress_status_tool_and_resource_are_readable(self):
+        tool_result = await self.server.call_tool("get_egress_status", {})
+        tool_payload = _tool_payload(tool_result)
+        resource = await self.server.read_resource("ytdlp://egress/status")
+        resource_payload = json.loads(resource[0].content)
+
+        self.assertTrue(tool_payload["ok"])
+        self.assertEqual(tool_payload["egress"]["active_egress_profile"], None)
+        self.assertEqual(resource_payload["active_egress_profile"], None)
 
     async def test_jobs_resource_lists_known_jobs(self):
         resource = await self.server.read_resource("ytdlp://jobs")

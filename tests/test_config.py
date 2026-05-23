@@ -19,6 +19,13 @@ class ConfigTests(unittest.TestCase):
                         "job_db_path": str(Path(root) / "jobs.sqlite3"),
                         "proxy": "socks5h://proxy.example.com:1080",
                         "require_proxy": True,
+                        "active_egress_profile": "vpn",
+                        "egress_profiles": {
+                            "vpn": {
+                                "type": "proxy",
+                                "proxy": "socks5h://profile.example.com:1080",
+                            }
+                        },
                         "allow_local_urls": True,
                         "allowed_domains": ["example.com", "media.example.com"],
                         "blocked_domains": ["ads.example.com"],
@@ -40,6 +47,8 @@ class ConfigTests(unittest.TestCase):
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.proxy, "socks5h://proxy.example.com:1080")
             self.assertTrue(result.policy.require_proxy)
+            self.assertEqual(result.policy.active_egress_profile, "vpn")
+            self.assertEqual(result.policy.active_egress().proxy, "socks5h://profile.example.com:1080")
             self.assertEqual(result.policy.allowed_domains, ("example.com", "media.example.com"))
             self.assertEqual(result.policy.blocked_domains, ("ads.example.com",))
             self.assertEqual(result.policy.max_playlist_items, 3)

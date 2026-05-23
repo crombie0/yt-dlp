@@ -32,6 +32,15 @@ class OptionsTests(unittest.TestCase):
         with self.assertRaises(PolicyError):
             build_probe_options(policy)
 
+    def test_disabled_active_egress_profile_rejects_probe_options(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            active_egress_profile="vpn",
+            egress_profiles={"vpn": {"type": "proxy", "enabled": False}},
+        )
+        with self.assertRaises(PolicyError):
+            build_probe_options(policy)
+
     def test_video_download_options_use_safe_defaults(self):
         options = build_download_options(self.policy, kind="video", playlist_items="1")
         self.assertEqual(options["format"], "bv*+ba/b")

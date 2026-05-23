@@ -92,6 +92,31 @@ class PolicyTests(unittest.TestCase):
             "socks5h://<redacted>@proxy.example.com:1080",
         )
 
+    def test_active_egress_profile_sets_effective_proxy(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            active_egress_profile="vpn",
+            egress_profiles={
+                "vpn": {
+                    "type": "proxy",
+                    "proxy": "socks5h://127.0.0.1:1080",
+                }
+            },
+        )
+
+        self.assertEqual(policy.proxy, "socks5h://127.0.0.1:1080")
+        self.assertEqual(policy.active_egress().name, "vpn")
+
+    def test_rejects_duplicate_egress_profile_names(self):
+        with self.assertRaises(PolicyError):
+            Policy(
+                output_root=Path("/tmp/ytdlp-mcp-test"),
+                egress_profiles=[
+                    {"name": "vpn", "type": "proxy"},
+                    {"name": "vpn", "type": "proxy"},
+                ],
+            )
+
     def test_playlist_range_is_bounded(self):
         self.assertEqual(validate_playlist_items("1-3", self.policy), "1-3")
         with self.assertRaises(PolicyError):

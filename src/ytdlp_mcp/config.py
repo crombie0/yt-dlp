@@ -22,6 +22,8 @@ POLICY_KEYS = {
     "job_db_path",
     "proxy",
     "require_proxy",
+    "active_egress_profile",
+    "egress_profiles",
     "allow_local_urls",
     "allowed_domains",
     "blocked_domains",
@@ -34,6 +36,7 @@ ENV_OVERRIDES = {
     "job_db_path": "YTDLP_MCP_JOB_DB_PATH",
     "proxy": "YTDLP_MCP_PROXY",
     "require_proxy": "YTDLP_MCP_REQUIRE_PROXY",
+    "active_egress_profile": "YTDLP_MCP_ACTIVE_EGRESS_PROFILE",
     "allow_local_urls": "YTDLP_MCP_ALLOW_LOCAL_URLS",
     "allowed_domains": "YTDLP_MCP_ALLOWED_DOMAINS",
     "blocked_domains": "YTDLP_MCP_BLOCKED_DOMAINS",
@@ -77,6 +80,8 @@ def load_configured_policy(
         "job_db_path": None,
         "proxy": None,
         "require_proxy": False,
+        "active_egress_profile": None,
+        "egress_profiles": [],
         "allow_local_urls": False,
         "allowed_domains": [],
         "blocked_domains": [],
@@ -100,6 +105,11 @@ def load_configured_policy(
         job_db_path=_optional_path_value(values["job_db_path"], "job_db_path"),
         proxy=_optional_string_value(values["proxy"], "proxy"),
         require_proxy=_bool_value(values["require_proxy"], "require_proxy"),
+        active_egress_profile=_optional_string_value(
+            values["active_egress_profile"],
+            "active_egress_profile",
+        ),
+        egress_profiles=_egress_profiles_value(values["egress_profiles"]),
         allow_local_urls=_bool_value(values["allow_local_urls"], "allow_local_urls"),
         allowed_domains=_list_value(values["allowed_domains"], "allowed_domains"),
         blocked_domains=_list_value(values["blocked_domains"], "blocked_domains"),
@@ -185,6 +195,14 @@ def _list_value(value: Any, key: str) -> tuple[str, ...]:
     if not all(isinstance(item, str) for item in value):
         raise PolicyError(f"{key} must be a list of strings.")
     return tuple(value)
+
+
+def _egress_profiles_value(value: Any) -> Any:
+    if value is None:
+        return ()
+    if isinstance(value, (dict, list)):
+        return value
+    raise PolicyError("egress_profiles must be a list or object.")
 
 
 def _validate_positive_policy(policy: Policy) -> None:

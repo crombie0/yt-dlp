@@ -7,6 +7,9 @@ from typing import Any
 from .artifacts import build_artifact_manifest
 from .artifacts import preview_artifact as preview_artifact_payload
 from .config import load_configured_policy
+from .egress import get_egress_status as build_egress_status
+from .egress import list_egress_profiles as build_egress_profiles
+from .egress import test_egress_ip as test_egress_ip_request
 from .errors import DependencyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
@@ -112,6 +115,42 @@ def create_server(
         """Return dependency, policy, and output-root diagnostics."""
         try:
             return {"ok": True, "diagnostics": service.diagnostics()}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def list_egress_profiles() -> dict[str, Any]:
+        """Return configured egress profiles with secrets redacted."""
+        try:
+            return {"ok": True, "egress": build_egress_profiles(effective_policy)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def get_egress_status() -> dict[str, Any]:
+        """Return the active egress profile and blocking issues."""
+        try:
+            return {"ok": True, "egress": build_egress_status(effective_policy)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_network)
+    def test_egress_ip(
+        profile_name: str | None = None,
+        url: str = "https://api.ipify.org?format=json",
+        timeout: int = 10,
+    ) -> dict[str, Any]:
+        """Check the public IP seen through an egress profile."""
+        try:
+            return {
+                "ok": True,
+                "egress": test_egress_ip_request(
+                    effective_policy,
+                    profile_name=profile_name,
+                    url=url,
+                    timeout=timeout,
+                ),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -308,6 +347,14 @@ def create_server(
     @mcp.resource("ytdlp://diagnostics/environment")
     def diagnostics_resource() -> str:
         return _json(service.diagnostics())
+
+    @mcp.resource("ytdlp://egress/profiles")
+    def egress_profiles_resource() -> str:
+        return _json(build_egress_profiles(effective_policy))
+
+    @mcp.resource("ytdlp://egress/status")
+    def egress_status_resource() -> str:
+        return _json(build_egress_status(effective_policy))
 
     @mcp.prompt()
     def plan_download(goal: str, url: str) -> str:

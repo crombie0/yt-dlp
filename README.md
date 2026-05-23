@@ -38,6 +38,15 @@ values when both are present.
   "job_db_path": "/absolute/path/to/ytdlp-mcp-jobs.sqlite3",
   "proxy": null,
   "require_proxy": false,
+  "active_egress_profile": null,
+  "egress_profiles": {
+    "local-socks-vpn": {
+      "type": "proxy",
+      "proxy": "socks5h://127.0.0.1:1080",
+      "enabled": false,
+      "description": "Enable after a VPN/proxy sidecar is verified"
+    }
+  },
   "allow_local_urls": false,
   "allowed_domains": ["youtube.com", "youtu.be"],
   "blocked_domains": [],
@@ -71,6 +80,9 @@ Example MCP client configuration:
 
 - `get_version`: Return server, Python, `yt-dlp`, and optional `ffmpeg` versions.
 - `diagnose_environment`: Return dependency, policy, and output-root diagnostics.
+- `list_egress_profiles`: Return configured egress profiles with secrets redacted.
+- `get_egress_status`: Return the active egress profile and blocking issues.
+- `test_egress_ip`: Check the public IP seen through an egress profile.
 - `probe_url`: Extract sanitized metadata without downloading media.
 - `list_formats`: Return a compact normalized format table.
 - `suggest_format`: Convert a simple goal into a `yt-dlp` format selector.
@@ -95,6 +107,8 @@ Example MCP client configuration:
 - `ytdlp://config/effective-policy`
 - `ytdlp://config/source`
 - `ytdlp://diagnostics/environment`
+- `ytdlp://egress/profiles`
+- `ytdlp://egress/status`
 
 ## Safety Model
 
@@ -113,6 +127,10 @@ HTTP(S) or SOCKS proxy, for example `socks5h://127.0.0.1:1080`. Set
 unless a proxy is configured. This prevents accidental direct egress, but it
 does not guarantee anonymity; the proxy/VPN provider and destination site may
 still log traffic.
+For provider-agnostic operations, define `egress_profiles` and set
+`active_egress_profile`. A `proxy` profile applies a yt-dlp proxy; an
+`external_vpn` profile documents process/container-level VPN routing and should
+only be enabled after `test_egress_ip` verifies the expected exit IP.
 
 Use this software only for media you are allowed to access and download.
 

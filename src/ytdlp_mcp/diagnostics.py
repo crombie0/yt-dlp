@@ -137,6 +137,13 @@ def _job_db_check(job_db_path: Path | None) -> dict[str, Any]:
 def _policy_check(policy: Policy) -> dict[str, Any]:
     errors: list[str] = []
     warnings: list[str] = []
+    active_egress = policy.active_egress()
+    if policy.active_egress_profile and active_egress is None:
+        errors.append(f"active egress profile does not exist: {policy.active_egress_profile}")
+    if active_egress and not active_egress.enabled:
+        errors.append(f"active egress profile is disabled: {active_egress.name}")
+    if active_egress and active_egress.type == "proxy" and not active_egress.proxy:
+        errors.append(f"active proxy egress profile has no proxy configured: {active_egress.name}")
     if policy.require_proxy and not policy.proxy:
         errors.append("outbound proxy is required but not configured")
     if policy.allow_local_urls:

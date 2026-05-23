@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from .errors import PolicyError
@@ -12,6 +15,46 @@ DEFAULT_OUTPUT_ROOT = "downloads"
 DEFAULT_MAX_PLAYLIST_ITEMS = 20
 DEFAULT_MAX_CONCURRENT_JOBS = 2
 DEFAULT_MAX_LOG_LINES = 200
+EGRESS_PROFILE_TYPES = {"proxy", "external_vpn"}
+EGRESS_PROFILE_NAME_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+@dataclass(frozen=True, slots=True)
+class EgressProfile:
+    name: str
+    type: str = "proxy"
+    proxy: str | None = None
+    enabled: bool = True
+    description: str | None = None
+
+    def __post_init__(self) -> None:
+        name = self.name.strip() if isinstance(self.name, str) else ""
+        if not EGRESS_PROFILE_NAME_RE.match(name):
+            raise PolicyError(
+                "egress profile names may only contain letters, numbers, '_', '-' or '.'."
+            )
+        object.__setattr__(self, "name", name)
+
+        profile_type = self.type.strip().lower() if isinstance(self.type, str) else ""
+        if profile_type not in EGRESS_PROFILE_TYPES:
+            allowed = ", ".join(sorted(EGRESS_PROFILE_TYPES))
+            raise PolicyError(f"egress profile type must be one of: {allowed}.")
+        object.__setattr__(self, "type", profile_type)
+        object.__setattr__(self, "proxy", normalize_proxy_url(self.proxy))
+
+        if not isinstance(self.enabled, bool):
+            raise PolicyError("egress profile enabled must be a boolean.")
+        if self.description is not None and not isinstance(self.description, str):
+            raise PolicyError("egress profile description must be a string.")
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "name": self.name,
+            "type": self.type,
+            "proxy": redact_proxy_url(self.proxy),
+            "enabled": self.enabled,
+            "description": self.description,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,6 +63,8 @@ class Policy:
     job_db_path: Path | None = None
     proxy: str | None = None
     require_proxy: bool = False
+    active_egress_profile: str | None = None
+    egress_profiles: tuple[EgressProfile, ...] = ()
     allow_local_urls: bool = False
     allowed_domains: tuple[str, ...] = ()
     blocked_domains: tuple[str, ...] = ()
@@ -31,7 +76,16 @@ class Policy:
         object.__setattr__(self, "output_root", Path(self.output_root))
         if self.job_db_path is not None:
             object.__setattr__(self, "job_db_path", Path(self.job_db_path))
-        object.__setattr__(self, "proxy", normalize_proxy_url(self.proxy))
+        profiles = normalize_egress_profiles(self.egress_profiles)
+        object.__setattr__(self, "egress_profiles", profiles)
+
+        active_profile_name = _normalize_optional_profile_name(self.active_egress_profile)
+        object.__setattr__(self, "active_egress_profile", active_profile_name)
+        active_profile = _find_egress_profile(profiles, active_profile_name)
+        proxy = normalize_proxy_url(self.proxy)
+        if active_profile and active_profile.type == "proxy" and active_profile.proxy and not proxy:
+            proxy = active_profile.proxy
+        object.__setattr__(self, "proxy", proxy)
         object.__setattr__(self, "allowed_domains", normalize_domain_list(self.allowed_domains))
         object.__setattr__(self, "blocked_domains", normalize_domain_list(self.blocked_domains))
 
@@ -43,6 +97,7 @@ class Policy:
             job_db_path=_env_path("YTDLP_MCP_JOB_DB_PATH"),
             proxy=_env_optional_string("YTDLP_MCP_PROXY"),
             require_proxy=_env_bool("YTDLP_MCP_REQUIRE_PROXY", default=False),
+            active_egress_profile=_env_optional_string("YTDLP_MCP_ACTIVE_EGRESS_PROFILE"),
             allow_local_urls=_env_bool("YTDLP_MCP_ALLOW_LOCAL_URLS", default=False),
             allowed_domains=_env_list("YTDLP_MCP_ALLOWED_DOMAINS"),
             blocked_domains=_env_list("YTDLP_MCP_BLOCKED_DOMAINS"),
@@ -74,6 +129,8 @@ class Policy:
             "job_db_path": str(job_db_path) if job_db_path else None,
             "proxy": redact_proxy_url(self.proxy),
             "require_proxy": self.require_proxy,
+            "active_egress_profile": self.active_egress_profile,
+            "egress_profiles": [profile.as_dict() for profile in self.egress_profiles],
             "allow_local_urls": self.allow_local_urls,
             "allowed_domains": list(self.allowed_domains),
             "blocked_domains": list(self.blocked_domains),
@@ -87,6 +144,15 @@ class Policy:
         if self.job_db_path is None:
             return None
         return self.job_db_path.expanduser().resolve()
+
+    def active_egress(self) -> EgressProfile | None:
+        return _find_egress_profile(self.egress_profiles, self.active_egress_profile)
+
+    def egress_profile(self, name: str | None) -> EgressProfile | None:
+        return _find_egress_profile(
+            self.egress_profiles,
+            _normalize_optional_profile_name(name),
+        )
 
 
 def validate_url(url: str, policy: Policy) -> str:
@@ -129,6 +195,48 @@ def normalize_domain_list(domains: object) -> tuple[str, ...]:
         if domain and domain not in seen:
             normalized.append(domain)
             seen.add(domain)
+    return tuple(normalized)
+
+
+def normalize_egress_profiles(profiles: object) -> tuple[EgressProfile, ...]:
+    if profiles is None:
+        return ()
+
+    raw_profiles: list[dict[str, Any]] = []
+    if isinstance(profiles, Mapping):
+        for name, payload in profiles.items():
+            if not isinstance(payload, Mapping):
+                raise PolicyError("egress profile entries must be objects.")
+            item = dict(payload)
+            item.setdefault("name", name)
+            raw_profiles.append(item)
+    else:
+        try:
+            candidates = list(profiles)  # type: ignore[arg-type]
+        except TypeError as exc:
+            raise PolicyError("egress_profiles must be a list or object.") from exc
+        for payload in candidates:
+            if not isinstance(payload, Mapping):
+                raise PolicyError("egress profile entries must be objects.")
+            raw_profiles.append(dict(payload))
+
+    normalized: list[EgressProfile] = []
+    seen: set[str] = set()
+    for payload in raw_profiles:
+        try:
+            profile = EgressProfile(
+                name=payload["name"],
+                type=payload.get("type", "proxy"),
+                proxy=payload.get("proxy"),
+                enabled=payload.get("enabled", True),
+                description=payload.get("description"),
+            )
+        except KeyError as exc:
+            raise PolicyError("egress profile entries must include a name.") from exc
+        if profile.name in seen:
+            raise PolicyError(f"Duplicate egress profile name: {profile.name}")
+        normalized.append(profile)
+        seen.add(profile.name)
     return tuple(normalized)
 
 
@@ -179,6 +287,16 @@ def redact_proxy_url(proxy: str | None) -> str | None:
 
 
 def require_outbound_proxy(policy: Policy) -> str | None:
+    active_profile = policy.active_egress()
+    if policy.active_egress_profile and active_profile is None:
+        raise PolicyError(f"Active egress profile does not exist: {policy.active_egress_profile}")
+    if active_profile and not active_profile.enabled:
+        raise PolicyError(f"Active egress profile is disabled: {active_profile.name}")
+    if active_profile and active_profile.type == "proxy" and not active_profile.proxy:
+        raise PolicyError(
+            f"Active proxy egress profile has no proxy configured: {active_profile.name}"
+        )
+
     if policy.require_proxy and not policy.proxy:
         raise PolicyError("Outbound proxy is required by policy but no proxy is configured.")
     return policy.proxy
@@ -268,6 +386,30 @@ def _domain_matches(hostname: str, domains: tuple[str, ...]) -> bool:
         normalized_hostname == domain or normalized_hostname.endswith(f".{domain}")
         for domain in domains
     )
+
+
+def _normalize_optional_profile_name(name: str | None) -> str | None:
+    if name is None:
+        return None
+    if not isinstance(name, str):
+        raise PolicyError("active_egress_profile must be a string.")
+    value = name.strip()
+    if not value:
+        return None
+    if not EGRESS_PROFILE_NAME_RE.match(value):
+        raise PolicyError(
+            "active_egress_profile may only contain letters, numbers, '_', '-' or '.'."
+        )
+    return value
+
+
+def _find_egress_profile(
+    profiles: tuple[EgressProfile, ...],
+    name: str | None,
+) -> EgressProfile | None:
+    if not name:
+        return None
+    return next((profile for profile in profiles if profile.name == name), None)
 
 
 def _normalize_domain(domain: object) -> str:
