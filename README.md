@@ -96,3 +96,12 @@ Full development verification after installing extras:
 .venv/bin/python -m pytest -q
 .venv/bin/ruff check .
 ```
+
+External live smoke tests are opt-in so the default suite stays deterministic:
+
+```bash
+YTDLP_MCP_LIVE_TEST_URL="https://example.com/media-or-watch-url" \
+  .venv/bin/python -m pytest -q tests/test_live_external.py
+```
+
+To allow the live smoke to download media, add `YTDLP_MCP_LIVE_DOWNLOAD=1`.
