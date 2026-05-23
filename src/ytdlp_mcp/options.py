@@ -61,6 +61,10 @@ def build_download_options(
         "playlist_items": validate_playlist_items(playlist_items, policy),
         "progress_hooks": [progress_hook] if progress_hook else [],
     }
+    archive_path = policy.resolved_download_archive_path
+    if archive_path is not None:
+        archive_path.parent.mkdir(parents=True, exist_ok=True)
+        options["download_archive"] = str(archive_path)
     _apply_proxy_options(options, policy)
     if logger is not None:
         options["logger"] = logger

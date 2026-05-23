@@ -37,6 +37,7 @@ values when both are present.
   "output_root": "/absolute/path/to/downloads",
   "job_db_path": "/absolute/path/to/ytdlp-mcp-jobs.sqlite3",
   "egress_state_path": "/absolute/path/to/ytdlp-mcp-egress-state.json",
+  "download_archive_path": "/absolute/path/to/ytdlp-mcp-download-archive.txt",
   "proxy": null,
   "require_proxy": false,
   "active_egress_profile": null,
@@ -88,6 +89,7 @@ Example MCP client configuration:
 - `test_egress_ip`: Check the public IP seen through an egress profile.
 - `report_egress_failure`: Record a block-like egress failure and apply cooldown.
 - `clear_egress_cooldown`: Clear persisted egress cooldowns.
+- `get_download_archive`: Return download archive status and recent recorded media IDs.
 - `probe_url`: Extract sanitized metadata without downloading media.
 - `list_formats`: Return a compact normalized format table.
 - `suggest_format`: Convert a simple goal into a `yt-dlp` format selector.
@@ -115,6 +117,7 @@ Example MCP client configuration:
 - `ytdlp://egress/profiles`
 - `ytdlp://egress/status`
 - `ytdlp://egress/health`
+- `ytdlp://download-archive`
 
 ## Safety Model
 
@@ -141,6 +144,9 @@ Set `egress_state_path` to persist egress failures and cooldowns. Block-like
 errors such as HTTP 429, HTTP 403, CAPTCHA, and bot-detection messages are
 classified and place the active profile/domain into cooldown for
 `egress_cooldown_seconds`, preventing repeated retries from the same exit path.
+Set `download_archive_path` to enable yt-dlp's download archive and skip media
+IDs that were already successfully recorded. This reduces duplicate requests
+and helps protect the active exit IP from unnecessary repeat downloads.
 
 Use this software only for media you are allowed to access and download.
 

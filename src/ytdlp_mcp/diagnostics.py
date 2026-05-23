@@ -24,6 +24,18 @@ def build_environment_diagnostics(policy: Policy, versions: dict[str, Any]) -> d
         _version_check("ffmpeg", versions.get("ffmpeg"), required=False),
         _output_root_check(policy.resolved_output_root),
         _job_db_check(policy.resolved_job_db_path),
+        _writable_file_check(
+            "download_archive",
+            policy.resolved_download_archive_path,
+            "download archive is disabled",
+            "download archive path appears writable",
+        ),
+        _writable_file_check(
+            "egress_state",
+            policy.resolved_egress_state_path,
+            "egress health persistence is disabled",
+            "egress state path appears writable",
+        ),
         _policy_check(policy),
     ]
     return {
@@ -127,6 +139,45 @@ def _job_db_check(job_db_path: Path | None) -> dict[str, Any]:
         "status": status,
         "required": False,
         "path": str(job_db_path),
+        "parent": str(parent),
+        "parent_exists": parent_exists,
+        "writable": writable,
+        "detail": detail,
+    }
+
+
+def _writable_file_check(
+    name: str,
+    path: Path | None,
+    disabled_detail: str,
+    ok_detail: str,
+) -> dict[str, Any]:
+    if path is None:
+        return {
+            "name": name,
+            "status": OK,
+            "required": False,
+            "path": None,
+            "detail": disabled_detail,
+        }
+
+    parent = path.parent
+    parent_exists = parent.exists()
+    writable = os.access(parent, os.W_OK) if parent_exists else False
+    status = OK
+    detail = ok_detail
+    if not parent_exists:
+        status = WARNING
+        detail = f"{name} parent directory does not exist yet"
+    elif not writable:
+        status = WARNING
+        detail = f"{name} parent directory is not writable"
+
+    return {
+        "name": name,
+        "status": status,
+        "required": False,
+        "path": str(path),
         "parent": str(parent),
         "parent_exists": parent_exists,
         "writable": writable,

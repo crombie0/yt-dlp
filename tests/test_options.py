@@ -56,6 +56,17 @@ class OptionsTests(unittest.TestCase):
         options = build_download_options(policy, kind="video", playlist_items="1")
         self.assertEqual(options["proxy"], "http://proxy.example.com:8080")
 
+    def test_download_options_include_archive_path(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            download_archive_path=Path("/tmp/ytdlp-mcp-test/archive/downloads.txt"),
+        )
+        options = build_download_options(policy, kind="video", playlist_items="1")
+        self.assertEqual(
+            options["download_archive"],
+            str(Path("/tmp/ytdlp-mcp-test/archive/downloads.txt").resolve()),
+        )
+
     def test_audio_download_options_add_postprocessor(self):
         options = build_download_options(self.policy, kind="audio", audio_format="mp3")
         self.assertEqual(options["format"], "bestaudio/best")

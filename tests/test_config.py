@@ -18,6 +18,7 @@ class ConfigTests(unittest.TestCase):
                         "output_root": str(output_root),
                         "job_db_path": str(Path(root) / "jobs.sqlite3"),
                         "egress_state_path": str(Path(root) / "egress-state.json"),
+                        "download_archive_path": str(Path(root) / "download-archive.txt"),
                         "proxy": "socks5h://proxy.example.com:1080",
                         "require_proxy": True,
                         "active_egress_profile": "vpn",
@@ -49,6 +50,10 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(
                 result.policy.resolved_egress_state_path,
                 (Path(root) / "egress-state.json").resolve(),
+            )
+            self.assertEqual(
+                result.policy.resolved_download_archive_path,
+                (Path(root) / "download-archive.txt").resolve(),
             )
             self.assertTrue(result.policy.allow_local_urls)
             self.assertEqual(result.policy.proxy, "socks5h://proxy.example.com:1080")

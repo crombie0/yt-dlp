@@ -7,6 +7,7 @@ from typing import Any
 from .artifacts import build_artifact_manifest
 from .artifacts import preview_artifact as preview_artifact_payload
 from .config import load_configured_policy
+from .download_archive import archive_summary
 from .egress import get_egress_status as build_egress_status
 from .egress import list_egress_profiles as build_egress_profiles
 from .egress import test_egress_ip as test_egress_ip_request
@@ -156,6 +157,14 @@ def create_server(
                     },
                 }
             return {"ok": True, "egress_health": egress_health.status(effective_policy)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def get_download_archive(limit: int = 50) -> dict[str, Any]:
+        """Return download archive status and recent recorded media IDs."""
+        try:
+            return {"ok": True, "archive": archive_summary(effective_policy, limit=limit)}
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -455,6 +464,10 @@ def create_server(
                 }
             )
         return _json(egress_health.status(effective_policy))
+
+    @mcp.resource("ytdlp://download-archive")
+    def download_archive_resource() -> str:
+        return _json(archive_summary(effective_policy))
 
     @mcp.prompt()
     def plan_download(goal: str, url: str) -> str:

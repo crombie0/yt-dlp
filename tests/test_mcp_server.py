@@ -35,6 +35,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("get_egress_health", by_name)
         self.assertIn("report_egress_failure", by_name)
         self.assertIn("clear_egress_cooldown", by_name)
+        self.assertIn("get_download_archive", by_name)
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
@@ -126,6 +127,16 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(tool_payload["ok"])
         self.assertFalse(tool_payload["egress_health"]["enabled"])
+        self.assertFalse(resource_payload["enabled"])
+
+    async def test_download_archive_tool_and_resource_are_readable(self):
+        tool_result = await self.server.call_tool("get_download_archive", {})
+        tool_payload = _tool_payload(tool_result)
+        resource = await self.server.read_resource("ytdlp://download-archive")
+        resource_payload = json.loads(resource[0].content)
+
+        self.assertTrue(tool_payload["ok"])
+        self.assertFalse(tool_payload["archive"]["enabled"])
         self.assertFalse(resource_payload["enabled"])
 
     async def test_jobs_resource_lists_known_jobs(self):
