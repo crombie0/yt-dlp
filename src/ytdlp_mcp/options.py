@@ -45,20 +45,29 @@ def build_download_options(
     progress_hook: ProgressHook | None = None,
     logger: object | None = None,
 ) -> dict[str, Any]:
-    kind = _validate_kind(kind)
+    plan = validate_download_parameters(
+        policy,
+        kind=kind,
+        format_selector=format_selector,
+        audio_format=audio_format,
+        subtitle_languages=subtitle_languages,
+        subtitle_format=subtitle_format,
+        output_template=output_template,
+        playlist_items=playlist_items,
+    )
+    kind = plan["kind"]
     output_root = policy.resolved_output_root
-    template = validate_output_template(output_template)
 
     options: dict[str, Any] = {
         "paths": {"home": str(output_root)},
-        "outtmpl": {"default": template},
+        "outtmpl": {"default": plan["output_template"]},
         "restrictfilenames": True,
         "windowsfilenames": True,
         "ignoreerrors": False,
         "quiet": True,
         "no_warnings": False,
         "noprogress": True,
-        "playlist_items": validate_playlist_items(playlist_items, policy),
+        "playlist_items": plan["playlist_items"],
         "progress_hooks": [progress_hook] if progress_hook else [],
     }
     archive_path = policy.resolved_download_archive_path
@@ -70,24 +79,57 @@ def build_download_options(
         options["logger"] = logger
 
     if kind == "video":
-        options["format"] = format_selector or "bv*+ba/b"
+        options["format"] = plan["format_selector"]
         options["merge_output_format"] = "mp4"
         options["writethumbnail"] = False
         options["writeinfojson"] = True
     elif kind == "audio":
-        audio_format = _validate_audio_format(audio_format)
-        options["format"] = format_selector or "bestaudio/best"
-        options["postprocessors"] = _audio_postprocessors(audio_format)
+        options["format"] = plan["format_selector"]
+        options["postprocessors"] = _audio_postprocessors(str(plan["audio_format"]))
         options["writeinfojson"] = True
     elif kind == "subtitles":
-        subtitle_format = _validate_subtitle_format(subtitle_format)
         options["skip_download"] = True
         options["writesubtitles"] = True
         options["writeautomaticsub"] = True
-        options["subtitlesformat"] = subtitle_format
-        options["subtitleslangs"] = _validate_subtitle_languages(subtitle_languages)
+        options["subtitlesformat"] = plan["subtitle_format"]
+        options["subtitleslangs"] = plan["subtitle_languages"]
 
     return options
+
+
+def validate_download_parameters(
+    policy: Policy,
+    *,
+    kind: str,
+    format_selector: str | None = None,
+    audio_format: str = "m4a",
+    subtitle_languages: list[str] | None = None,
+    subtitle_format: str = "best",
+    output_template: str | None = None,
+    playlist_items: str | None = None,
+) -> dict[str, Any]:
+    kind = _validate_kind(kind)
+    archive_path = policy.resolved_download_archive_path
+    plan: dict[str, Any] = {
+        "kind": kind,
+        "output_root": str(policy.resolved_output_root),
+        "output_template": validate_output_template(output_template),
+        "playlist_items": validate_playlist_items(playlist_items, policy),
+        "download_archive_path": str(archive_path) if archive_path else None,
+    }
+
+    if kind == "video":
+        plan["format_selector"] = format_selector or "bv*+ba/b"
+        plan["merge_output_format"] = "mp4"
+    elif kind == "audio":
+        plan["format_selector"] = format_selector or "bestaudio/best"
+        plan["audio_format"] = _validate_audio_format(audio_format)
+    elif kind == "subtitles":
+        plan["format_selector"] = None
+        plan["subtitle_format"] = _validate_subtitle_format(subtitle_format)
+        plan["subtitle_languages"] = _validate_subtitle_languages(subtitle_languages)
+
+    return plan
 
 
 def suggest_format(goal: str) -> dict[str, str]:

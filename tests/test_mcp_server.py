@@ -36,6 +36,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("report_egress_failure", by_name)
         self.assertIn("clear_egress_cooldown", by_name)
         self.assertIn("get_download_archive", by_name)
+        self.assertIn("preflight_download", by_name)
         self.assertIn("probe_url", by_name)
         self.assertIn("start_download", by_name)
         self.assertIn("list_jobs", by_name)
@@ -48,6 +49,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
         self.assertTrue(by_name["diagnose_environment"].annotations.readOnlyHint)
         self.assertTrue(by_name["list_egress_profiles"].annotations.readOnlyHint)
+        self.assertTrue(by_name["preflight_download"].annotations.readOnlyHint)
 
     async def test_suggest_format_call_returns_structured_payload(self):
         result = await self.server.call_tool("suggest_format", {"goal": "audio mp3"})
@@ -138,6 +140,27 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tool_payload["ok"])
         self.assertFalse(tool_payload["archive"]["enabled"])
         self.assertFalse(resource_payload["enabled"])
+
+    async def test_preflight_download_reports_blockers_without_queueing(self):
+        server = create_server(
+            Policy(
+                output_root=Path("/tmp/ytdlp-mcp-preflight-test"),
+                require_proxy=True,
+            )
+        )
+        result = await server.call_tool(
+            "preflight_download",
+            {"url": "https://example.com/watch?v=1"},
+        )
+        payload = _tool_payload(result)
+
+        self.assertTrue(payload["ok"])
+        self.assertFalse(payload["ready"])
+        self.assertIn(
+            "outbound proxy is required but no proxy is configured",
+            payload["blockers"],
+        )
+        self.assertIsNone(payload["recommended_next_tool"])
 
     async def test_jobs_resource_lists_known_jobs(self):
         resource = await self.server.read_resource("ytdlp://jobs")

@@ -90,6 +90,7 @@ Example MCP client configuration:
 - `report_egress_failure`: Record a block-like egress failure and apply cooldown.
 - `clear_egress_cooldown`: Clear persisted egress cooldowns.
 - `get_download_archive`: Return download archive status and recent recorded media IDs.
+- `preflight_download`: Check local policy, egress, archive, and output readiness before downloading.
 - `probe_url`: Extract sanitized metadata without downloading media.
 - `list_formats`: Return a compact normalized format table.
 - `suggest_format`: Convert a simple goal into a `yt-dlp` format selector.

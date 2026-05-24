@@ -16,6 +16,7 @@ from .errors import DependencyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
 from .policy import Policy
+from .preflight import build_download_preflight
 from .service import YtdlpService
 
 
@@ -165,6 +166,34 @@ def create_server(
         """Return download archive status and recent recorded media IDs."""
         try:
             return {"ok": True, "archive": archive_summary(effective_policy, limit=limit)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def preflight_download(
+        url: str,
+        kind: str = "video",
+        format_selector: str | None = None,
+        audio_format: str = "m4a",
+        subtitle_languages: list[str] | None = None,
+        subtitle_format: str = "best",
+        output_template: str | None = None,
+        playlist_items: str | None = None,
+    ) -> dict[str, Any]:
+        """Check local policy, egress, archive, and output readiness before downloading."""
+        try:
+            return build_download_preflight(
+                effective_policy,
+                url=url,
+                egress_health=egress_health,
+                kind=kind,
+                format_selector=format_selector,
+                audio_format=audio_format,
+                subtitle_languages=subtitle_languages,
+                subtitle_format=subtitle_format,
+                output_template=output_template,
+                playlist_items=playlist_items,
+            )
         except Exception as exc:
             return to_error_payload(exc)
 
