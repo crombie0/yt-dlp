@@ -85,6 +85,34 @@ class PreflightTests(unittest.TestCase):
             )
             self.assertIsNotNone(payload["egress_health"]["url_block"])
 
+    def test_preflight_uses_request_country_egress(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            active_egress_profile="vpn-us",
+            egress_profiles={
+                "vpn-us": {
+                    "type": "proxy",
+                    "proxy": "socks5h://127.0.0.1:1080",
+                    "country_code": "US",
+                },
+                "vpn-jp": {
+                    "type": "proxy",
+                    "proxy": "socks5h://127.0.0.1:1081",
+                    "country_code": "JP",
+                },
+            },
+        )
+
+        payload = build_download_preflight(
+            policy,
+            url="https://example.com/watch?v=1",
+            country_code="JP",
+        )
+
+        self.assertTrue(payload["ready"])
+        self.assertEqual(payload["egress_selection"]["selected"]["name"], "vpn-jp")
+        self.assertEqual(payload["egress"]["effective_proxy"], "socks5h://127.0.0.1:1081")
+
 
 if __name__ == "__main__":
     unittest.main()

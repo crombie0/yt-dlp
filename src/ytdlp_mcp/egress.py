@@ -9,6 +9,7 @@ from .errors import DependencyError, DownloadError, PolicyError
 from .policy import Policy, redact_proxy_url, validate_url
 
 DEFAULT_EGRESS_CHECK_URL = "https://api.ipify.org?format=json"
+DEFAULT_EGRESS_GEO_URL = "https://ipinfo.io/json"
 
 
 def list_egress_profiles(policy: Policy) -> dict[str, Any]:
@@ -48,11 +49,36 @@ def test_egress_ip(
     url: str = DEFAULT_EGRESS_CHECK_URL,
     timeout: int = 10,
     allow_disabled: bool = False,
+    include_geo: bool = False,
+    geo_url: str = DEFAULT_EGRESS_GEO_URL,
 ) -> dict[str, Any]:
     validated_url = validate_url(url, policy)
     profile = policy.egress_profile(profile_name) if profile_name else policy.active_egress()
     proxy = _proxy_for_test(policy, profile_name=profile_name, allow_disabled=allow_disabled)
-    command = _curl_command(validated_url, proxy=proxy, timeout=timeout)
+    body = _curl_text(validated_url, proxy=proxy, timeout=timeout)
+
+    geo = None
+    if include_geo:
+        validated_geo_url = validate_url(geo_url, policy)
+        geo_body = body if validated_geo_url == validated_url else _curl_text(
+            validated_geo_url,
+            proxy=proxy,
+            timeout=timeout,
+        )
+        geo = _extract_geo(geo_body)
+
+    return {
+        "profile": profile.as_dict() if profile else None,
+        "proxy": redact_proxy_url(proxy),
+        "url": validated_url,
+        "ip": _extract_ip(body),
+        "raw": body[:1000],
+        "geo": geo,
+    }
+
+
+def _curl_text(url: str, *, proxy: str | None, timeout: int) -> str:
+    command = _curl_command(url, proxy=proxy, timeout=timeout)
     try:
         result = subprocess.run(
             command,
@@ -70,14 +96,7 @@ def test_egress_ip(
         detail = (result.stderr or result.stdout or "").strip()
         raise DownloadError("Egress IP check failed.", detail=detail)
 
-    body = result.stdout.strip()
-    return {
-        "profile": profile.as_dict() if profile else None,
-        "proxy": redact_proxy_url(proxy),
-        "url": validated_url,
-        "ip": _extract_ip(body),
-        "raw": body[:1000],
-    }
+    return result.stdout.strip()
 
 
 def _proxy_for_test(
@@ -134,3 +153,24 @@ def _extract_ip(body: str) -> str | None:
     if isinstance(payload, dict) and isinstance(payload.get("ip"), str):
         return payload["ip"]
     return None
+
+
+def _extract_geo(body: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(body)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    country = payload.get("country")
+    return {
+        "ip": payload.get("ip") if isinstance(payload.get("ip"), str) else None,
+        "country_code": country.upper() if isinstance(country, str) and country else None,
+        "country": (
+            payload.get("country_name") if isinstance(payload.get("country_name"), str) else None
+        ),
+        "region": payload.get("region") if isinstance(payload.get("region"), str) else None,
+        "city": payload.get("city") if isinstance(payload.get("city"), str) else None,
+        "org": payload.get("org") if isinstance(payload.get("org"), str) else None,
+        "timezone": payload.get("timezone") if isinstance(payload.get("timezone"), str) else None,
+    }

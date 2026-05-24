@@ -17,11 +17,13 @@ class EgressRotationTests(unittest.TestCase):
                     "vpn-a": {
                         "type": "proxy",
                         "proxy": "socks5h://127.0.0.1:1080",
+                        "country_code": "US",
                     },
                     "vpn-b": {
                         "type": "proxy",
                         "proxy": "socks5h://127.0.0.1:1081",
                         "enabled": False,
+                        "country_code": "JP",
                     },
                 },
             )
@@ -43,6 +45,7 @@ class EgressRotationTests(unittest.TestCase):
                 egress_health=store,
                 url="https://example.com/video",
                 exclude_active=True,
+                country_code="JP",
             )
 
             self.assertEqual(payload["recommended_profile"], "vpn-b")

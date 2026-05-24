@@ -107,6 +107,25 @@ class PolicyTests(unittest.TestCase):
         self.assertEqual(policy.proxy, "socks5h://127.0.0.1:1080")
         self.assertEqual(policy.active_egress().name, "vpn")
 
+    def test_egress_profile_accepts_country_metadata(self):
+        policy = Policy(
+            output_root=Path("/tmp/ytdlp-mcp-test"),
+            egress_profiles={
+                "vpn-us": {
+                    "type": "proxy",
+                    "proxy": "socks5h://127.0.0.1:1080",
+                    "provider": "expressvpn",
+                    "region": "usa-san-francisco",
+                    "country": "United States",
+                    "country_code": "us",
+                }
+            },
+        )
+
+        profile = policy.egress_profile("vpn-us")
+        self.assertEqual(profile.country_code, "US")
+        self.assertEqual(profile.region, "usa-san-francisco")
+
     def test_rejects_duplicate_egress_profile_names(self):
         with self.assertRaises(PolicyError):
             Policy(

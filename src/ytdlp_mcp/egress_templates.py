@@ -13,6 +13,10 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "profile": {
             "type": "proxy",
             "proxy": "socks5h://127.0.0.1:1080",
+            "provider": "generic",
+            "region": None,
+            "country": None,
+            "country_code": None,
             "enabled": False,
             "description": "Generic SOCKS egress. Enable only after verify_egress_profile passes.",
         },
@@ -29,6 +33,10 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "profile": {
             "type": "proxy",
             "proxy": "socks5h://127.0.0.1:1080",
+            "provider": "wireguard",
+            "region": None,
+            "country": None,
+            "country_code": None,
             "enabled": False,
             "description": "WireGuard VPN sidecar SOCKS egress. Verify before activation.",
         },
@@ -59,6 +67,10 @@ TEMPLATES: dict[str, dict[str, Any]] = {
         "summary": "Document a process/container-level ExpressVPN route when no proxy is exposed.",
         "profile": {
             "type": "external_vpn",
+            "provider": "expressvpn",
+            "region": None,
+            "country": None,
+            "country_code": None,
             "enabled": False,
             "description": (
                 "ExpressVPN process/container route. Enable only after egress IP is verified."
@@ -99,6 +111,10 @@ def render_profile_from_template(
     *,
     profile_name: str,
     proxy: str | None = None,
+    provider: str | None = None,
+    region: str | None = None,
+    country: str | None = None,
+    country_code: str | None = None,
 ) -> dict[str, Any]:
     template = get_egress_template(name)
     normalized_profile_name = (profile_name or "").strip()
@@ -107,6 +123,14 @@ def render_profile_from_template(
     profile = deepcopy(template["profile"])
     if proxy is not None:
         profile["proxy"] = proxy
+    for key, value in {
+        "provider": provider,
+        "region": region,
+        "country": country,
+        "country_code": country_code,
+    }.items():
+        if value is not None:
+            profile[key] = value
     return {
         "name": normalized_profile_name,
         "profile": profile,

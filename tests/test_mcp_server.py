@@ -31,6 +31,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("diagnose_environment", by_name)
         self.assertIn("list_egress_profiles", by_name)
         self.assertIn("get_egress_status", by_name)
+        self.assertIn("resolve_egress_profile", by_name)
         self.assertIn("test_egress_ip", by_name)
         self.assertIn("get_egress_health", by_name)
         self.assertIn("verify_egress_profile", by_name)
@@ -56,6 +57,7 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
         self.assertTrue(by_name["diagnose_environment"].annotations.readOnlyHint)
         self.assertTrue(by_name["list_egress_profiles"].annotations.readOnlyHint)
+        self.assertTrue(by_name["resolve_egress_profile"].annotations.readOnlyHint)
         self.assertTrue(by_name["recommend_egress_profile"].annotations.readOnlyHint)
         self.assertFalse(by_name["verify_egress_profile"].annotations.readOnlyHint)
         self.assertFalse(by_name["activate_egress_profile"].annotations.readOnlyHint)
@@ -188,6 +190,33 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
             payload["blockers"],
         )
         self.assertIsNone(payload["recommended_next_tool"])
+
+    async def test_resolve_egress_profile_by_country(self):
+        server = create_server(
+            Policy(
+                output_root=Path("/tmp/ytdlp-mcp-country-test"),
+                active_egress_profile="vpn-us",
+                egress_profiles={
+                    "vpn-us": {
+                        "type": "proxy",
+                        "proxy": "socks5h://127.0.0.1:1080",
+                        "country_code": "US",
+                    },
+                    "vpn-jp": {
+                        "type": "proxy",
+                        "proxy": "socks5h://127.0.0.1:1081",
+                        "country_code": "JP",
+                        "country": "Japan",
+                    },
+                },
+            )
+        )
+        result = await server.call_tool("resolve_egress_profile", {"country_code": "jp"})
+        payload = _tool_payload(result)
+
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["egress_selection"]["selected"]["name"], "vpn-jp")
+        self.assertEqual(payload["egress"]["effective_proxy"], "socks5h://127.0.0.1:1081")
 
     async def test_jobs_resource_lists_known_jobs(self):
         resource = await self.server.read_resource("ytdlp://jobs")

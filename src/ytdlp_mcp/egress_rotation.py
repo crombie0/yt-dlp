@@ -4,7 +4,7 @@ import time
 from typing import Any
 
 from .egress_health import EgressHealthStore
-from .policy import Policy, validate_url
+from .policy import Policy, normalize_country_code, normalize_country_name, validate_url
 
 
 def recommend_egress_profile(
@@ -15,9 +15,13 @@ def recommend_egress_profile(
     require_verified: bool = True,
     max_verification_age_seconds: int = 86400,
     exclude_active: bool = False,
+    country_code: str | None = None,
+    country: str | None = None,
 ) -> dict[str, Any]:
     validated_url = validate_url(url, policy) if url else None
     current_time = time.time()
+    normalized_country_code = normalize_country_code(country_code, key="country_code")
+    normalized_country = normalize_country_name(country, key="country")
     candidates = [
         _candidate_payload(
             policy,
@@ -30,6 +34,11 @@ def recommend_egress_profile(
             exclude_active=exclude_active,
         )
         for profile in policy.egress_profiles
+        if _country_matches(
+            profile,
+            country_code=normalized_country_code,
+            country=normalized_country,
+        )
     ]
     ranked = sorted(candidates, key=_rank_candidate)
     recommended = next((item for item in ranked if item["ready_for_activation"]), None)
@@ -41,6 +50,8 @@ def recommend_egress_profile(
         "url": validated_url,
         "require_verified": require_verified,
         "max_verification_age_seconds": max_verification_age_seconds,
+        "country_code": normalized_country_code,
+        "country": normalized_country,
     }
 
 
@@ -97,6 +108,10 @@ def _candidate_payload(
         "name": profile.name,
         "type": profile.type,
         "enabled": profile.enabled,
+        "provider": profile.provider,
+        "region": profile.region,
+        "country": profile.country,
+        "country_code": profile.country_code,
         "is_active": profile.name == policy.active_egress_profile,
         "ready_for_activation": not blockers,
         "blockers": blockers,
@@ -112,3 +127,9 @@ def _rank_candidate(candidate: dict[str, Any]) -> tuple[int, int, int, str]:
         0 if candidate["is_active"] else 1,
         candidate["name"],
     )
+
+
+def _country_matches(profile: Any, *, country_code: str | None, country: str | None) -> bool:
+    if country_code and profile.country_code != country_code:
+        return False
+    return not (country and (profile.country or "").casefold() != country.casefold())

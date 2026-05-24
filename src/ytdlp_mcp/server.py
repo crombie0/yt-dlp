@@ -17,6 +17,7 @@ from .egress import test_egress_ip as test_egress_ip_request
 from .egress_config import activate_profile_in_config
 from .egress_health import EgressHealthStore, classify_failure
 from .egress_rotation import recommend_egress_profile as build_egress_recommendation
+from .egress_selection import select_request_egress
 from .egress_templates import (
     get_egress_template as get_egress_template_payload,
 )
@@ -29,7 +30,7 @@ from .egress_templates import (
 from .errors import DependencyError, PolicyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
-from .policy import Policy
+from .policy import Policy, normalize_country_code, normalize_country_name
 from .preflight import build_download_preflight
 from .service import YtdlpService
 
@@ -159,6 +160,27 @@ def create_server(
             "egress": build_egress_status(effective_policy),
         }
 
+    def _request_policy(
+        *,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
+        url: str | None = None,
+    ) -> tuple[Policy, dict[str, Any]]:
+        return select_request_egress(
+            effective_policy,
+            profile_name=egress_profile,
+            country_code=country_code,
+            country=country,
+            egress_health=egress_health,
+            url=url,
+        )
+
+    def _request_service(policy: Policy) -> YtdlpService:
+        if policy is effective_policy:
+            return service
+        return YtdlpService(policy, egress_health=egress_health)
+
     def _start_download_job(
         *,
         url: str,
@@ -169,8 +191,18 @@ def create_server(
         subtitle_format: str = "best",
         output_template: str | None = None,
         playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
-        service.validate_download_request(
+        selected_policy, egress_selection = _request_policy(
+            egress_profile=egress_profile,
+            country_code=country_code,
+            country=country,
+            url=url,
+        )
+        selected_service = _request_service(selected_policy)
+        selected_service.validate_download_request(
             url,
             kind=kind,
             format_selector=format_selector,
@@ -182,7 +214,7 @@ def create_server(
         )
 
         def run(context):
-            return service.download(
+            result = selected_service.download(
                 url,
                 context,
                 kind=kind,
@@ -193,6 +225,8 @@ def create_server(
                 output_template=output_template,
                 playlist_items=playlist_items,
             )
+            result["egress_selection"] = egress_selection
+            return result
 
         record = jobs.submit(kind, run)
         return {
@@ -200,6 +234,7 @@ def create_server(
             "job_id": record.job_id,
             "status_resource": f"ytdlp://jobs/{record.job_id}/status",
             "log_resource": f"ytdlp://jobs/{record.job_id}/log",
+            "egress_selection": egress_selection,
         }
 
     @mcp.tool(annotations=read_only_local)
@@ -231,6 +266,29 @@ def create_server(
             if egress_health is not None:
                 egress["health"] = egress_health.status(effective_policy)
             return {"ok": True, "egress": egress}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def resolve_egress_profile(
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
+        url: str | None = None,
+    ) -> dict[str, Any]:
+        """Resolve the profile that would be used for a request-level egress selection."""
+        try:
+            selected_policy, selection = _request_policy(
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
+                url=url,
+            )
+            return {
+                "ok": True,
+                "egress_selection": selection,
+                "egress": build_egress_status(selected_policy),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -271,6 +329,10 @@ def create_server(
         template_name: str,
         profile_name: str,
         proxy: str | None = None,
+        provider: str | None = None,
+        region: str | None = None,
+        country: str | None = None,
+        country_code: str | None = None,
     ) -> dict[str, Any]:
         """Render an egress profile config patch from a template."""
         try:
@@ -280,6 +342,10 @@ def create_server(
                     template_name,
                     profile_name=profile_name,
                     proxy=proxy,
+                    provider=provider,
+                    region=region,
+                    country=country,
+                    country_code=country_code,
                 ),
             }
         except Exception as exc:
@@ -303,6 +369,9 @@ def create_server(
         subtitle_format: str = "best",
         output_template: str | None = None,
         playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Check local policy, egress, archive, and output readiness before downloading."""
         try:
@@ -317,6 +386,9 @@ def create_server(
                 subtitle_format=subtitle_format,
                 output_template=output_template,
                 playlist_items=playlist_items,
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
             )
         except Exception as exc:
             return to_error_payload(exc)
@@ -388,6 +460,8 @@ def create_server(
         url: str = "https://api.ipify.org?format=json",
         timeout: int = 10,
         allow_disabled: bool = False,
+        include_geo: bool = False,
+        geo_url: str = "https://ipinfo.io/json",
     ) -> dict[str, Any]:
         """Check the public IP seen through an egress profile."""
         try:
@@ -399,6 +473,8 @@ def create_server(
                     url=url,
                     timeout=timeout,
                     allow_disabled=allow_disabled,
+                    include_geo=include_geo,
+                    geo_url=geo_url,
                 ),
             }
         except Exception as exc:
@@ -409,23 +485,42 @@ def create_server(
         profile_name: str,
         expected_ip: str | None = None,
         expected_cidr: str | None = None,
+        expected_country_code: str | None = None,
+        expected_country: str | None = None,
         url: str = "https://api.ipify.org?format=json",
+        geo_url: str = "https://ipinfo.io/json",
         timeout: int = 10,
     ) -> dict[str, Any]:
         """Verify and persist the exit IP for an egress profile before activation."""
         try:
+            profile = effective_policy.egress_profile(profile_name)
+            if profile is None:
+                raise PolicyError(f"Egress profile does not exist: {profile_name}")
+            country_code_to_verify = expected_country_code or profile.country_code
+            country_to_verify = expected_country
+            if country_to_verify is None and not country_code_to_verify:
+                country_to_verify = profile.country
             result = test_egress_ip_request(
                 effective_policy,
                 profile_name=profile_name,
                 url=url,
                 timeout=timeout,
                 allow_disabled=True,
+                include_geo=bool(country_code_to_verify or country_to_verify),
+                geo_url=geo_url,
             )
             verified, message = _verify_expected_ip(
                 result.get("ip"),
                 expected_ip=expected_ip,
                 expected_cidr=expected_cidr,
             )
+            if verified:
+                verified, message = _verify_expected_country(
+                    result.get("geo"),
+                    expected_country_code=country_code_to_verify,
+                    expected_country=country_to_verify,
+                    success_prefix=message,
+                )
             event = None
             if egress_health is not None:
                 event = egress_health.record_verification(
@@ -434,6 +529,8 @@ def create_server(
                     verified=verified,
                     expected_ip=expected_ip,
                     expected_cidr=expected_cidr,
+                    expected_country_code=country_code_to_verify,
+                    expected_country=country_to_verify,
                     message=message,
                 )
             return {
@@ -471,6 +568,8 @@ def create_server(
         require_verified: bool = True,
         max_verification_age_seconds: int = 86400,
         exclude_active: bool = False,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Recommend the next verified egress profile that is not cooling down."""
         try:
@@ -481,6 +580,8 @@ def create_server(
                 require_verified=require_verified,
                 max_verification_age_seconds=max(1, int(max_verification_age_seconds)),
                 exclude_active=exclude_active,
+                country_code=country_code,
+                country=country,
             )
         except Exception as exc:
             return to_error_payload(exc)
@@ -492,6 +593,8 @@ def create_server(
         max_verification_age_seconds: int = 86400,
         force: bool = False,
         allow_external_vpn_without_proxy: bool = False,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Pick a non-cooling verified profile and optionally activate it."""
         try:
@@ -502,6 +605,8 @@ def create_server(
                 require_verified=not force,
                 max_verification_age_seconds=max(1, int(max_verification_age_seconds)),
                 exclude_active=True,
+                country_code=country_code,
+                country=country,
             )
             if not activate:
                 return recommendation
@@ -519,18 +624,52 @@ def create_server(
             return to_error_payload(exc)
 
     @mcp.tool(annotations=read_only_network)
-    def probe_url(url: str, playlist_items: str | None = None) -> dict[str, Any]:
+    def probe_url(
+        url: str,
+        playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
+    ) -> dict[str, Any]:
         """Extract sanitized media metadata without downloading media."""
         try:
-            return {"ok": True, "info": service.probe(url, playlist_items=playlist_items)}
+            selected_policy, egress_selection = _request_policy(
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
+                url=url,
+            )
+            selected_service = _request_service(selected_policy)
+            return {
+                "ok": True,
+                "egress_selection": egress_selection,
+                "info": selected_service.probe(url, playlist_items=playlist_items),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
     @mcp.tool(annotations=read_only_network)
-    def list_formats(url: str, playlist_items: str | None = None) -> dict[str, Any]:
+    def list_formats(
+        url: str,
+        playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
+    ) -> dict[str, Any]:
         """Return a normalized list of formats for a URL."""
         try:
-            return {"ok": True, **service.list_formats(url, playlist_items=playlist_items)}
+            selected_policy, egress_selection = _request_policy(
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
+                url=url,
+            )
+            selected_service = _request_service(selected_policy)
+            return {
+                "ok": True,
+                "egress_selection": egress_selection,
+                **selected_service.list_formats(url, playlist_items=playlist_items),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -552,6 +691,9 @@ def create_server(
         subtitle_format: str = "best",
         output_template: str | None = None,
         playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Start an asynchronous download job and return its job_id."""
         try:
@@ -564,6 +706,9 @@ def create_server(
                 subtitle_format=subtitle_format,
                 output_template=output_template,
                 playlist_items=playlist_items,
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
             )
         except Exception as exc:
             return to_error_payload(exc)
@@ -574,6 +719,9 @@ def create_server(
         audio_format: str = "m4a",
         output_template: str | None = None,
         playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Start an asynchronous audio-only download job."""
         try:
@@ -583,6 +731,9 @@ def create_server(
                 audio_format=audio_format,
                 output_template=output_template,
                 playlist_items=playlist_items,
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
             )
         except Exception as exc:
             return to_error_payload(exc)
@@ -594,6 +745,9 @@ def create_server(
         subtitle_format: str = "best",
         output_template: str | None = None,
         playlist_items: str | None = None,
+        egress_profile: str | None = None,
+        country_code: str | None = None,
+        country: str | None = None,
     ) -> dict[str, Any]:
         """Start an asynchronous subtitle-only download job."""
         try:
@@ -604,6 +758,9 @@ def create_server(
                 subtitle_format=subtitle_format,
                 output_template=output_template,
                 playlist_items=playlist_items,
+                egress_profile=egress_profile,
+                country_code=country_code,
+                country=country,
             )
         except Exception as exc:
             return to_error_payload(exc)
@@ -807,3 +964,41 @@ def _verify_expected_ip(
             return False, f"Observed IP {observed} is outside expected range {network}."
 
     return True, f"Observed IP {observed} passed verification."
+
+
+def _verify_expected_country(
+    geo: object,
+    *,
+    expected_country_code: str | None,
+    expected_country: str | None,
+    success_prefix: str,
+) -> tuple[bool, str]:
+    expected_code = normalize_country_code(
+        expected_country_code,
+        key="expected_country_code",
+    )
+    expected_name = normalize_country_name(expected_country, key="expected_country")
+    if not expected_code and not expected_name:
+        return True, success_prefix
+    if not isinstance(geo, dict):
+        return False, "Egress country verification did not return geo metadata."
+
+    observed_code = normalize_country_code(
+        geo.get("country_code"),
+        key="observed_country_code",
+    )
+    observed_name = normalize_country_name(geo.get("country"), key="observed_country")
+    if expected_code and observed_code != expected_code:
+        return (
+            False,
+            f"Observed country code {observed_code or 'unknown'} "
+            f"did not match expected country code {expected_code}.",
+        )
+    if expected_name and (observed_name or "").casefold() != expected_name.casefold():
+        return (
+            False,
+            f"Observed country {observed_name or 'unknown'} "
+            f"did not match expected country {expected_name}.",
+        )
+    detail = f"{success_prefix} Observed country code {observed_code or 'unknown'}."
+    return True, detail

@@ -45,6 +45,10 @@ values when both are present.
     "local-socks-vpn": {
       "type": "proxy",
       "proxy": "socks5h://127.0.0.1:1080",
+      "provider": "expressvpn",
+      "region": "usa-san-francisco",
+      "country": "United States",
+      "country_code": "US",
       "enabled": false,
       "description": "Enable after a VPN/proxy sidecar is verified"
     }
@@ -85,6 +89,7 @@ Example MCP client configuration:
 - `diagnose_environment`: Return dependency, policy, and output-root diagnostics.
 - `list_egress_profiles`: Return configured egress profiles with secrets redacted.
 - `get_egress_status`: Return the active egress profile and blocking issues.
+- `resolve_egress_profile`: Preview which profile a request-level country/profile selection uses.
 - `get_egress_health`: Return persisted egress cooldowns and recent failure events.
 - `test_egress_ip`: Check the public IP seen through an egress profile.
 - `verify_egress_profile`: Test and persist a profile's observed exit IP before activation.
@@ -163,9 +168,18 @@ Use `list_egress_templates` and `render_egress_profile_template` to generate
 non-secret config snippets for generic SOCKS proxies, WireGuard sidecars, or
 process-level ExpressVPN-style routes. Secrets belong in the VPN sidecar or
 host environment, not in the MCP config.
+Profiles may include non-secret metadata (`provider`, `region`, `country`, and
+`country_code`). `verify_egress_profile` automatically verifies the observed
+country when `country_code` is configured, and request tools accept
+`egress_profile`, `country_code`, or `country` to choose a per-request profile
+without changing the global active profile. This requires one proxy endpoint per
+country/region; a single VPN sidecar cannot safely serve concurrent countries.
 Set `download_archive_path` to enable yt-dlp's download archive and skip media
 IDs that were already successfully recorded. This reduces duplicate requests
 and helps protect the active exit IP from unnecessary repeat downloads.
+
+ExpressVPN CLI region slugs captured from the installed Linux client are stored
+in `docs/expressvpn-regions.md`.
 
 Use this software only for media you are allowed to access and download.
 

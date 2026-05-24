@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from .download_archive import archive_summary
 from .egress import get_egress_status
 from .egress_health import EgressHealthStore
+from .egress_selection import select_request_egress
 from .errors import PolicyError
 from .options import validate_download_parameters
 from .policy import Policy, validate_url
@@ -25,12 +26,17 @@ def build_download_preflight(
     subtitle_format: str = "best",
     output_template: str | None = None,
     playlist_items: str | None = None,
+    egress_profile: str | None = None,
+    country_code: str | None = None,
+    country: str | None = None,
 ) -> dict[str, Any]:
     checks: list[dict[str, Any]] = []
     blockers: list[str] = []
     warnings: list[str] = []
     validated_url: str | None = None
     download_plan: dict[str, Any] | None = None
+    selected_policy = policy
+    egress_selection: dict[str, Any] | None = None
 
     try:
         validated_url = validate_url(url, policy)
@@ -40,8 +46,36 @@ def build_download_preflight(
         _add_check(checks, "url_policy", "fail", str(exc))
 
     try:
-        download_plan = validate_download_parameters(
+        selected_policy, egress_selection = select_request_egress(
             policy,
+            profile_name=egress_profile,
+            country_code=country_code,
+            country=country,
+            egress_health=egress_health,
+            url=validated_url,
+        )
+        _add_check(
+            checks,
+            "egress_selection",
+            "pass",
+            "Request egress selection is valid.",
+        )
+    except PolicyError as exc:
+        blockers.append(str(exc))
+        egress_selection = {
+            "requested": {
+                "profile_name": egress_profile,
+                "country_code": country_code,
+                "country": country,
+            },
+            "selected": None,
+            "policy_override": False,
+        }
+        _add_check(checks, "egress_selection", "fail", str(exc))
+
+    try:
+        download_plan = validate_download_parameters(
+            selected_policy,
             kind=kind,
             format_selector=format_selector,
             audio_format=audio_format,
@@ -62,7 +96,7 @@ def build_download_preflight(
         warnings.append(str(output["detail"]))
     _add_check(checks, "output_root", str(output["status"]), str(output["detail"]))
 
-    archive = archive_summary(policy, limit=10)
+    archive = archive_summary(selected_policy, limit=10)
     if archive["enabled"]:
         detail = "Download archive is enabled."
         if not archive["exists"]:
@@ -74,7 +108,7 @@ def build_download_preflight(
         warnings.append(detail)
         _add_check(checks, "download_archive", "warn", detail)
 
-    egress = get_egress_status(policy)
+    egress = get_egress_status(selected_policy)
     for issue in egress["issues"]:
         blockers.append(str(issue))
     _add_check(
@@ -85,7 +119,7 @@ def build_download_preflight(
     )
 
     egress_health_payload = _egress_health_status(
-        policy,
+        selected_policy,
         egress_health=egress_health,
         url=validated_url,
     )
@@ -117,6 +151,7 @@ def build_download_preflight(
         "output": output,
         "archive": archive,
         "egress": egress,
+        "egress_selection": egress_selection,
         "egress_health": egress_health_payload["health"],
     }
 

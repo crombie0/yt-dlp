@@ -159,6 +159,8 @@ class EgressHealthStore:
         verified: bool,
         expected_ip: str | None = None,
         expected_cidr: str | None = None,
+        expected_country_code: str | None = None,
+        expected_country: str | None = None,
         message: str | None = None,
         now: float | None = None,
     ) -> dict[str, Any]:
@@ -168,10 +170,13 @@ class EgressHealthStore:
             "profile": profile_name,
             "verified": verified,
             "ip": result.get("ip"),
+            "geo": result.get("geo"),
             "url": result.get("url"),
             "proxy": result.get("proxy"),
             "expected_ip": expected_ip,
             "expected_cidr": expected_cidr,
+            "expected_country_code": expected_country_code,
+            "expected_country": expected_country,
             "message": _compact_message(message or ""),
         }
         with self._lock:

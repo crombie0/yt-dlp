@@ -27,6 +27,10 @@ class EgressProfile:
     proxy: str | None = None
     enabled: bool = True
     description: str | None = None
+    provider: str | None = None
+    region: str | None = None
+    country: str | None = None
+    country_code: str | None = None
 
     def __post_init__(self) -> None:
         name = self.name.strip() if isinstance(self.name, str) else ""
@@ -47,6 +51,14 @@ class EgressProfile:
             raise PolicyError("egress profile enabled must be a boolean.")
         if self.description is not None and not isinstance(self.description, str):
             raise PolicyError("egress profile description must be a string.")
+        object.__setattr__(self, "provider", _normalize_optional_label(self.provider, "provider"))
+        object.__setattr__(self, "region", _normalize_optional_label(self.region, "region"))
+        object.__setattr__(self, "country", _normalize_optional_label(self.country, "country"))
+        object.__setattr__(
+            self,
+            "country_code",
+            normalize_country_code(self.country_code, key="country_code"),
+        )
 
     def as_dict(self) -> dict[str, object]:
         return {
@@ -55,6 +67,10 @@ class EgressProfile:
             "proxy": redact_proxy_url(self.proxy),
             "enabled": self.enabled,
             "description": self.description,
+            "provider": self.provider,
+            "region": self.region,
+            "country": self.country,
+            "country_code": self.country_code,
         }
 
 
@@ -236,6 +252,14 @@ def normalize_egress_profiles(profiles: object) -> tuple[EgressProfile, ...]:
     if profiles is None:
         return ()
 
+    if isinstance(profiles, tuple) and all(isinstance(item, EgressProfile) for item in profiles):
+        seen: set[str] = set()
+        for profile in profiles:
+            if profile.name in seen:
+                raise PolicyError(f"Duplicate egress profile name: {profile.name}")
+            seen.add(profile.name)
+        return profiles
+
     raw_profiles: list[dict[str, Any]] = []
     if isinstance(profiles, Mapping):
         for name, payload in profiles.items():
@@ -264,6 +288,10 @@ def normalize_egress_profiles(profiles: object) -> tuple[EgressProfile, ...]:
                 proxy=payload.get("proxy"),
                 enabled=payload.get("enabled", True),
                 description=payload.get("description"),
+                provider=payload.get("provider"),
+                region=payload.get("region"),
+                country=payload.get("country"),
+                country_code=payload.get("country_code"),
             )
         except KeyError as exc:
             raise PolicyError("egress profile entries must include a name.") from exc
@@ -272,6 +300,23 @@ def normalize_egress_profiles(profiles: object) -> tuple[EgressProfile, ...]:
         normalized.append(profile)
         seen.add(profile.name)
     return tuple(normalized)
+
+
+def normalize_country_code(value: object, *, key: str = "country_code") -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PolicyError(f"{key} must be a string.")
+    code = value.strip().upper()
+    if not code:
+        return None
+    if not re.fullmatch(r"[A-Z]{2}", code):
+        raise PolicyError(f"{key} must be an ISO 3166-1 alpha-2 country code.")
+    return code
+
+
+def normalize_country_name(value: object, *, key: str = "country") -> str | None:
+    return _normalize_optional_label(value, key)
 
 
 def normalize_proxy_url(proxy: object) -> str | None:
@@ -435,6 +480,21 @@ def _normalize_optional_profile_name(name: str | None) -> str | None:
             "active_egress_profile may only contain letters, numbers, '_', '-' or '.'."
         )
     return value
+
+
+def _normalize_optional_label(value: object, key: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PolicyError(f"egress profile {key} must be a string.")
+    normalized = " ".join(value.strip().split())
+    if not normalized:
+        return None
+    if "\x00" in normalized:
+        raise PolicyError(f"egress profile {key} cannot contain NUL bytes.")
+    if len(normalized) > 128:
+        raise PolicyError(f"egress profile {key} must be 128 characters or fewer.")
+    return normalized
 
 
 def _find_egress_profile(
