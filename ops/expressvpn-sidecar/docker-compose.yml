@@ -6,15 +6,18 @@ services:
     restart: unless-stopped
     cap_add:
       - NET_ADMIN
+      - SYS_PTRACE
     devices:
       - /dev/net/tun:/dev/net/tun
+    stdin_open: true
+    tty: true
     ports:
       - "127.0.0.1:1080:1080/tcp"
     environment:
       EXPRESSVPN_ACTIVATION_CODE_FILE: /run/secrets/expressvpn_activation_code
       EXPRESSVPN_INSTALLER_DIR: /installer
       EXPRESSVPN_LOCATION: "${EXPRESSVPN_LOCATION:-}"
-      EXPRESSVPN_PROTOCOL: "${EXPRESSVPN_PROTOCOL:-lightwayudp}"
+      EXPRESSVPN_PROTOCOL: "${EXPRESSVPN_PROTOCOL:-lightwaytcp}"
       SOCKS_LISTEN_ADDR: "0.0.0.0"
       SOCKS_PORT: "1080"
     volumes:

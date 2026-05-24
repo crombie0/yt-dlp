@@ -9,7 +9,12 @@ RUN apt-get update \
         iproute2 \
         iptables \
         kmod \
+        libatomic1 \
+        libglib2.0-0 \
+        libnl-3-200 \
+        libnl-route-3-200 \
         microsocks \
+        psmisc \
         procps \
     && rm -rf /var/lib/apt/lists/*
 

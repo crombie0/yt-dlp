@@ -47,6 +47,8 @@ After the proxy returns a VPN IP, verify and activate the MCP profile:
 ## Notes
 
 - The proxy is bound to `127.0.0.1:1080` on the host, not exposed publicly.
-- `EXPRESSVPN_PROTOCOL` defaults to `lightwayudp`.
+- `EXPRESSVPN_PROTOCOL` defaults to `lightwaytcp` for more reliable container egress.
+- The SOCKS proxy starts only after ExpressVPN reports `Connected`; Network Lock
+  is enabled after that so later tunnel drops fail closed.
 - Set `EXPRESSVPN_LOCATION` in `.env` or `compose.yml` to pin a region.
 - Keep `YTDLP_MCP_REQUIRE_PROXY=true` in the MCP config.
