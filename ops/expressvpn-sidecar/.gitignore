@@ -1,0 +1,6 @@
+installer/*
+secrets/*
+state/*
+!installer/.gitkeep
+!secrets/.gitkeep
+!state/.gitkeep

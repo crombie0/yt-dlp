@@ -1,0 +1,28 @@
+services:
+  expressvpn-proxy:
+    build:
+      context: .
+    container_name: expressvpn-proxy
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - "127.0.0.1:1080:1080/tcp"
+    environment:
+      EXPRESSVPN_ACTIVATION_CODE_FILE: /run/secrets/expressvpn_activation_code
+      EXPRESSVPN_INSTALLER_DIR: /installer
+      EXPRESSVPN_LOCATION: "${EXPRESSVPN_LOCATION:-}"
+      EXPRESSVPN_PROTOCOL: "${EXPRESSVPN_PROTOCOL:-lightwayudp}"
+      SOCKS_LISTEN_ADDR: "0.0.0.0"
+      SOCKS_PORT: "1080"
+    volumes:
+      - ./installer:/installer:ro
+      - ./state:/var/lib/expressvpn-sidecar
+    secrets:
+      - expressvpn_activation_code
+
+secrets:
+  expressvpn_activation_code:
+    file: ./secrets/activation_code
