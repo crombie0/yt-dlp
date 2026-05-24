@@ -12,6 +12,7 @@ from .errors import PolicyError
 from .policy import Policy
 
 MAX_EVENTS = 500
+MAX_VERIFICATIONS = 200
 COOLDOWN_CATEGORIES = {
     "RATE_LIMITED",
     "FORBIDDEN",
@@ -40,7 +41,7 @@ class EgressHealthStore:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         if not self._path.exists():
-            self._save({"version": 1, "events": [], "cooldowns": []})
+            self._save({"version": 1, "events": [], "cooldowns": [], "verifications": []})
 
     def status(self, policy: Policy, *, now: float | None = None) -> dict[str, Any]:
         current_time = time.time() if now is None else now
@@ -54,6 +55,7 @@ class EgressHealthStore:
             "state_path": str(self._path),
             "cooldowns": cooldowns,
             "recent_events": list(state.get("events", []))[-25:],
+            "recent_verifications": list(state.get("verifications", []))[-25:],
             "active_block": self.active_block(policy, now=current_time),
         }
 
@@ -68,13 +70,32 @@ class EgressHealthStore:
         profile = _profile_key(policy)
         domain = _domain_from_url(url) if url else None
         for item in self._load().get("cooldowns", []):
-            if item.get("profile") != profile:
-                continue
-            if _float_value(item.get("until")) <= current_time:
-                continue
-            if domain and item.get("domain") not in {domain, "*"}:
-                continue
-            return dict(item)
+            if isinstance(item, dict) and _cooldown_applies(
+                item,
+                profile=profile,
+                domain=domain,
+                now=current_time,
+            ):
+                return dict(item)
+        return None
+
+    def block_for_profile(
+        self,
+        profile_name: str,
+        *,
+        url: str | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any] | None:
+        current_time = time.time() if now is None else now
+        domain = _domain_from_url(url) if url else None
+        for item in self._load().get("cooldowns", []):
+            if isinstance(item, dict) and _cooldown_applies(
+                item,
+                profile=profile_name,
+                domain=domain,
+                now=current_time,
+            ):
+                return dict(item)
         return None
 
     def enforce_available(self, policy: Policy, url: str) -> None:
@@ -130,6 +151,44 @@ class EgressHealthStore:
             self._save(state)
         return event
 
+    def record_verification(
+        self,
+        *,
+        profile_name: str,
+        result: dict[str, Any],
+        verified: bool,
+        expected_ip: str | None = None,
+        expected_cidr: str | None = None,
+        message: str | None = None,
+        now: float | None = None,
+    ) -> dict[str, Any]:
+        current_time = time.time() if now is None else now
+        event = {
+            "time": current_time,
+            "profile": profile_name,
+            "verified": verified,
+            "ip": result.get("ip"),
+            "url": result.get("url"),
+            "proxy": result.get("proxy"),
+            "expected_ip": expected_ip,
+            "expected_cidr": expected_cidr,
+            "message": _compact_message(message or ""),
+        }
+        with self._lock:
+            state = self._load()
+            verifications = list(state.get("verifications", []))
+            verifications.append(event)
+            state["verifications"] = verifications[-MAX_VERIFICATIONS:]
+            self._save(state)
+        return event
+
+    def latest_verification(self, profile_name: str) -> dict[str, Any] | None:
+        verifications = self._load().get("verifications", [])
+        for item in reversed(verifications):
+            if isinstance(item, dict) and item.get("profile") == profile_name:
+                return dict(item)
+        return None
+
     def clear_cooldowns(
         self,
         *,
@@ -153,12 +212,13 @@ class EgressHealthStore:
             try:
                 payload = json.loads(self._path.read_text(encoding="utf-8"))
             except (OSError, json.JSONDecodeError):
-                return {"version": 1, "events": [], "cooldowns": []}
+                return {"version": 1, "events": [], "cooldowns": [], "verifications": []}
             if not isinstance(payload, dict):
-                return {"version": 1, "events": [], "cooldowns": []}
+                return {"version": 1, "events": [], "cooldowns": [], "verifications": []}
             payload.setdefault("version", 1)
             payload.setdefault("events", [])
             payload.setdefault("cooldowns", [])
+            payload.setdefault("verifications", [])
             return payload
 
     def _save(self, payload: dict[str, Any]) -> None:
@@ -217,6 +277,20 @@ def _upsert_cooldown(cooldowns: object, cooldown: dict[str, Any]) -> list[dict[s
     if not replaced:
         items.append(cooldown)
     return items
+
+
+def _cooldown_applies(
+    item: dict[str, Any],
+    *,
+    profile: str,
+    domain: str | None,
+    now: float,
+) -> bool:
+    if item.get("profile") != profile:
+        return False
+    if _float_value(item.get("until")) <= now:
+        return False
+    return not (domain and item.get("domain") not in {domain, "*"})
 
 
 def _matches_cooldown(

@@ -87,6 +87,13 @@ Example MCP client configuration:
 - `get_egress_status`: Return the active egress profile and blocking issues.
 - `get_egress_health`: Return persisted egress cooldowns and recent failure events.
 - `test_egress_ip`: Check the public IP seen through an egress profile.
+- `verify_egress_profile`: Test and persist a profile's observed exit IP before activation.
+- `activate_egress_profile`: Enable a recently verified profile in JSON config and reload policy.
+- `recommend_egress_profile`: Pick the best verified profile that is not cooling down.
+- `rotate_egress_profile`: Recommend or activate a verified non-active profile.
+- `list_egress_templates`: List non-secret provider/proxy profile templates.
+- `get_egress_template`: Return a template with setup notes and placeholders.
+- `render_egress_profile_template`: Render a profile config patch from a template.
 - `report_egress_failure`: Record a block-like egress failure and apply cooldown.
 - `clear_egress_cooldown`: Clear persisted egress cooldowns.
 - `get_download_archive`: Return download archive status and recent recorded media IDs.
@@ -145,6 +152,17 @@ Set `egress_state_path` to persist egress failures and cooldowns. Block-like
 errors such as HTTP 429, HTTP 403, CAPTCHA, and bot-detection messages are
 classified and place the active profile/domain into cooldown for
 `egress_cooldown_seconds`, preventing repeated retries from the same exit path.
+The same state file stores successful and failed `verify_egress_profile`
+records. `activate_egress_profile` refuses to activate a profile unless it has a
+recent successful verification, unless `force=true` is explicitly supplied.
+Use `recommend_egress_profile` or `rotate_egress_profile` after a cooldown to
+pick a verified profile that is not currently blocked. Rotation changes the
+JSON config and reloads the in-process policy, but it is rejected while jobs are
+queued or running so in-flight downloads do not unexpectedly switch egress.
+Use `list_egress_templates` and `render_egress_profile_template` to generate
+non-secret config snippets for generic SOCKS proxies, WireGuard sidecars, or
+process-level ExpressVPN-style routes. Secrets belong in the VPN sidecar or
+host environment, not in the MCP config.
 Set `download_archive_path` to enable yt-dlp's download archive and skip media
 IDs that were already successfully recorded. This reduces duplicate requests
 and helps protect the active exit IP from unnecessary repeat downloads.

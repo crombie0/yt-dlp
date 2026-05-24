@@ -120,6 +120,14 @@ class JobStore:
                 self._persist(record)
             return record
 
+    def active_count(self) -> int:
+        with self._lock:
+            return sum(
+                1
+                for record in self._records.values()
+                if record.status in {"queued", "running"}
+            )
+
     def update_progress(self, job_id: str, progress: dict[str, Any]) -> None:
         with self._lock:
             record = self.get(job_id)

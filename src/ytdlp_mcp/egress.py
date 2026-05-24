@@ -47,10 +47,11 @@ def test_egress_ip(
     profile_name: str | None = None,
     url: str = DEFAULT_EGRESS_CHECK_URL,
     timeout: int = 10,
+    allow_disabled: bool = False,
 ) -> dict[str, Any]:
     validated_url = validate_url(url, policy)
     profile = policy.egress_profile(profile_name) if profile_name else policy.active_egress()
-    proxy = _proxy_for_test(policy, profile_name=profile_name)
+    proxy = _proxy_for_test(policy, profile_name=profile_name, allow_disabled=allow_disabled)
     command = _curl_command(validated_url, proxy=proxy, timeout=timeout)
     try:
         result = subprocess.run(
@@ -79,11 +80,16 @@ def test_egress_ip(
     }
 
 
-def _proxy_for_test(policy: Policy, *, profile_name: str | None) -> str | None:
+def _proxy_for_test(
+    policy: Policy,
+    *,
+    profile_name: str | None,
+    allow_disabled: bool = False,
+) -> str | None:
     profile = policy.egress_profile(profile_name) if profile_name else policy.active_egress()
     if profile_name and profile is None:
         raise PolicyError(f"Egress profile does not exist: {profile_name}")
-    if profile and not profile.enabled:
+    if profile and not profile.enabled and not allow_disabled:
         raise PolicyError(f"Egress profile is disabled: {profile.name}")
     if profile and profile.type == "proxy":
         if not profile.proxy:

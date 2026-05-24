@@ -33,6 +33,13 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("get_egress_status", by_name)
         self.assertIn("test_egress_ip", by_name)
         self.assertIn("get_egress_health", by_name)
+        self.assertIn("verify_egress_profile", by_name)
+        self.assertIn("activate_egress_profile", by_name)
+        self.assertIn("recommend_egress_profile", by_name)
+        self.assertIn("rotate_egress_profile", by_name)
+        self.assertIn("list_egress_templates", by_name)
+        self.assertIn("get_egress_template", by_name)
+        self.assertIn("render_egress_profile_template", by_name)
         self.assertIn("report_egress_failure", by_name)
         self.assertIn("clear_egress_cooldown", by_name)
         self.assertIn("get_download_archive", by_name)
@@ -49,6 +56,9 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(by_name["get_job_artifacts"].annotations.readOnlyHint)
         self.assertTrue(by_name["diagnose_environment"].annotations.readOnlyHint)
         self.assertTrue(by_name["list_egress_profiles"].annotations.readOnlyHint)
+        self.assertTrue(by_name["recommend_egress_profile"].annotations.readOnlyHint)
+        self.assertFalse(by_name["verify_egress_profile"].annotations.readOnlyHint)
+        self.assertFalse(by_name["activate_egress_profile"].annotations.readOnlyHint)
         self.assertTrue(by_name["preflight_download"].annotations.readOnlyHint)
 
     async def test_suggest_format_call_returns_structured_payload(self):
@@ -140,6 +150,23 @@ class FastMcpServerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(tool_payload["ok"])
         self.assertFalse(tool_payload["archive"]["enabled"])
         self.assertFalse(resource_payload["enabled"])
+
+    async def test_egress_template_tools_are_readable(self):
+        list_result = await self.server.call_tool("list_egress_templates", {})
+        list_payload = _tool_payload(list_result)
+        render_result = await self.server.call_tool(
+            "render_egress_profile_template",
+            {
+                "template_name": "generic-socks-proxy",
+                "profile_name": "vpn",
+                "proxy": "socks5h://127.0.0.1:1088",
+            },
+        )
+        render_payload = _tool_payload(render_result)
+
+        self.assertTrue(list_payload["ok"])
+        self.assertTrue(render_payload["ok"])
+        self.assertEqual(render_payload["template"]["profile"]["proxy"], "socks5h://127.0.0.1:1088")
 
     async def test_preflight_download_reports_blockers_without_queueing(self):
         server = create_server(

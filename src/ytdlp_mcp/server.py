@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
+import time
+from pathlib import Path
 from typing import Any
 
 from .artifacts import build_artifact_manifest
@@ -11,8 +14,19 @@ from .download_archive import archive_summary
 from .egress import get_egress_status as build_egress_status
 from .egress import list_egress_profiles as build_egress_profiles
 from .egress import test_egress_ip as test_egress_ip_request
+from .egress_config import activate_profile_in_config
 from .egress_health import EgressHealthStore, classify_failure
-from .errors import DependencyError, to_error_payload
+from .egress_rotation import recommend_egress_profile as build_egress_recommendation
+from .egress_templates import (
+    get_egress_template as get_egress_template_payload,
+)
+from .egress_templates import (
+    list_egress_templates as list_egress_templates_payload,
+)
+from .egress_templates import (
+    render_profile_from_template as render_egress_profile_template_payload,
+)
+from .errors import DependencyError, PolicyError, to_error_payload
 from .jobs import JobStore
 from .options import suggest_format as suggest_format_goal
 from .policy import Policy
@@ -69,6 +83,81 @@ def create_server(
         idempotentHint=False,
         openWorldHint=False,
     )
+    mutates_network_state = ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    )
+    mutates_config = ToolAnnotations(
+        readOnlyHint=False,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    )
+
+    def _reload_runtime_policy(config_path: str | Path) -> None:
+        nonlocal effective_policy, effective_config_source, egress_health, service
+        loaded = load_configured_policy(config_path)
+        effective_policy = loaded.policy
+        effective_config_source = loaded.source
+        egress_health = (
+            EgressHealthStore(effective_policy.resolved_egress_state_path)
+            if effective_policy.resolved_egress_state_path is not None
+            else None
+        )
+        service = YtdlpService(effective_policy, egress_health=egress_health)
+
+    def _require_no_active_jobs() -> None:
+        if jobs.active_count():
+            raise PolicyError("Cannot change egress policy while jobs are queued or running.")
+
+    def _require_recent_verification(
+        profile_name: str,
+        *,
+        max_age_seconds: int,
+        force: bool,
+    ) -> dict[str, Any] | None:
+        if force:
+            return None
+        if egress_health is None:
+            raise PolicyError("egress_state_path is required before activating egress profiles.")
+        latest = egress_health.latest_verification(profile_name)
+        if latest is None:
+            raise PolicyError(f"Egress profile has not been verified: {profile_name}")
+        if not latest.get("verified"):
+            raise PolicyError(f"Latest egress verification did not pass: {profile_name}")
+        age = time.time() - float(latest.get("time", 0))
+        if age > max_age_seconds:
+            raise PolicyError(f"Latest egress verification is stale: {profile_name}")
+        return latest
+
+    def _activate_egress_profile(
+        profile_name: str,
+        *,
+        max_verification_age_seconds: int,
+        force: bool,
+        allow_external_vpn_without_proxy: bool,
+    ) -> dict[str, Any]:
+        _require_no_active_jobs()
+        verification = _require_recent_verification(
+            profile_name,
+            max_age_seconds=max(1, int(max_verification_age_seconds)),
+            force=force,
+        )
+        activation = activate_profile_in_config(
+            config_source=effective_config_source,
+            policy=effective_policy,
+            profile_name=profile_name,
+            allow_external_vpn_without_proxy=allow_external_vpn_without_proxy,
+        )
+        _reload_runtime_policy(activation["config_path"])
+        return {
+            "ok": True,
+            "activation": activation,
+            "verification": verification,
+            "egress": build_egress_status(effective_policy),
+        }
 
     def _start_download_job(
         *,
@@ -158,6 +247,41 @@ def create_server(
                     },
                 }
             return {"ok": True, "egress_health": egress_health.status(effective_policy)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def list_egress_templates(provider: str | None = None) -> dict[str, Any]:
+        """Return provider-agnostic VPN/proxy profile templates."""
+        try:
+            return {"ok": True, **list_egress_templates_payload(provider)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def get_egress_template(name: str) -> dict[str, Any]:
+        """Return a VPN/proxy profile template with non-secret placeholders."""
+        try:
+            return {"ok": True, "template": get_egress_template_payload(name)}
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def render_egress_profile_template(
+        template_name: str,
+        profile_name: str,
+        proxy: str | None = None,
+    ) -> dict[str, Any]:
+        """Render an egress profile config patch from a template."""
+        try:
+            return {
+                "ok": True,
+                "template": render_egress_profile_template_payload(
+                    template_name,
+                    profile_name=profile_name,
+                    proxy=proxy,
+                ),
+            }
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -263,6 +387,7 @@ def create_server(
         profile_name: str | None = None,
         url: str = "https://api.ipify.org?format=json",
         timeout: int = 10,
+        allow_disabled: bool = False,
     ) -> dict[str, Any]:
         """Check the public IP seen through an egress profile."""
         try:
@@ -273,8 +398,123 @@ def create_server(
                     profile_name=profile_name,
                     url=url,
                     timeout=timeout,
+                    allow_disabled=allow_disabled,
                 ),
             }
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=mutates_network_state)
+    def verify_egress_profile(
+        profile_name: str,
+        expected_ip: str | None = None,
+        expected_cidr: str | None = None,
+        url: str = "https://api.ipify.org?format=json",
+        timeout: int = 10,
+    ) -> dict[str, Any]:
+        """Verify and persist the exit IP for an egress profile before activation."""
+        try:
+            result = test_egress_ip_request(
+                effective_policy,
+                profile_name=profile_name,
+                url=url,
+                timeout=timeout,
+                allow_disabled=True,
+            )
+            verified, message = _verify_expected_ip(
+                result.get("ip"),
+                expected_ip=expected_ip,
+                expected_cidr=expected_cidr,
+            )
+            event = None
+            if egress_health is not None:
+                event = egress_health.record_verification(
+                    profile_name=profile_name,
+                    result=result,
+                    verified=verified,
+                    expected_ip=expected_ip,
+                    expected_cidr=expected_cidr,
+                    message=message,
+                )
+            return {
+                "ok": True,
+                "verified": verified,
+                "message": message,
+                "egress": result,
+                "persisted": event is not None,
+                "verification": event,
+            }
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=mutates_config)
+    def activate_egress_profile(
+        profile_name: str,
+        max_verification_age_seconds: int = 86400,
+        force: bool = False,
+        allow_external_vpn_without_proxy: bool = False,
+    ) -> dict[str, Any]:
+        """Activate a recently verified egress profile in config and reload runtime policy."""
+        try:
+            return _activate_egress_profile(
+                profile_name,
+                max_verification_age_seconds=max_verification_age_seconds,
+                force=force,
+                allow_external_vpn_without_proxy=allow_external_vpn_without_proxy,
+            )
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=read_only_local)
+    def recommend_egress_profile(
+        url: str | None = None,
+        require_verified: bool = True,
+        max_verification_age_seconds: int = 86400,
+        exclude_active: bool = False,
+    ) -> dict[str, Any]:
+        """Recommend the next verified egress profile that is not cooling down."""
+        try:
+            return build_egress_recommendation(
+                effective_policy,
+                egress_health=egress_health,
+                url=url,
+                require_verified=require_verified,
+                max_verification_age_seconds=max(1, int(max_verification_age_seconds)),
+                exclude_active=exclude_active,
+            )
+        except Exception as exc:
+            return to_error_payload(exc)
+
+    @mcp.tool(annotations=mutates_config)
+    def rotate_egress_profile(
+        url: str | None = None,
+        activate: bool = False,
+        max_verification_age_seconds: int = 86400,
+        force: bool = False,
+        allow_external_vpn_without_proxy: bool = False,
+    ) -> dict[str, Any]:
+        """Pick a non-cooling verified profile and optionally activate it."""
+        try:
+            recommendation = build_egress_recommendation(
+                effective_policy,
+                egress_health=egress_health,
+                url=url,
+                require_verified=not force,
+                max_verification_age_seconds=max(1, int(max_verification_age_seconds)),
+                exclude_active=True,
+            )
+            if not activate:
+                return recommendation
+            profile_name = recommendation.get("recommended_profile")
+            if not profile_name:
+                raise PolicyError("No verified egress profile is available for rotation.")
+            activation = _activate_egress_profile(
+                str(profile_name),
+                max_verification_age_seconds=max_verification_age_seconds,
+                force=force,
+                allow_external_vpn_without_proxy=allow_external_vpn_without_proxy,
+            )
+            return {"ok": True, "recommendation": recommendation, **activation}
         except Exception as exc:
             return to_error_payload(exc)
 
@@ -535,3 +775,35 @@ def main(argv: list[str] | None = None) -> int:
 
 def _json(payload: Any) -> str:
     return json.dumps(payload, ensure_ascii=True, indent=2, sort_keys=True)
+
+
+def _verify_expected_ip(
+    ip: object,
+    *,
+    expected_ip: str | None,
+    expected_cidr: str | None,
+) -> tuple[bool, str]:
+    if not isinstance(ip, str) or not ip.strip():
+        return False, "Egress check did not return an IP address."
+    try:
+        observed = ipaddress.ip_address(ip.strip())
+    except ValueError:
+        return False, f"Egress check returned an invalid IP address: {ip}"
+
+    if expected_ip:
+        try:
+            expected = ipaddress.ip_address(expected_ip.strip())
+        except ValueError as exc:
+            raise PolicyError("expected_ip must be a valid IP address.") from exc
+        if observed != expected:
+            return False, f"Observed IP {observed} did not match expected IP {expected}."
+
+    if expected_cidr:
+        try:
+            network = ipaddress.ip_network(expected_cidr.strip(), strict=False)
+        except ValueError as exc:
+            raise PolicyError("expected_cidr must be a valid CIDR range.") from exc
+        if observed not in network:
+            return False, f"Observed IP {observed} is outside expected range {network}."
+
+    return True, f"Observed IP {observed} passed verification."

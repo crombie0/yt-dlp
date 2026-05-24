@@ -78,6 +78,27 @@ class EgressHealthTests(unittest.TestCase):
 
             self.assertIsNone(store.active_block(policy, url="https://example.com/video"))
 
+    def test_records_latest_verification(self):
+        with TemporaryDirectory() as root:
+            store = EgressHealthStore(Path(root) / "egress-state.json")
+
+            event = store.record_verification(
+                profile_name="vpn",
+                result={
+                    "ip": "203.0.113.10",
+                    "url": "https://api.ipify.org?format=json",
+                    "proxy": "socks5h://127.0.0.1:1080",
+                },
+                verified=True,
+                expected_ip="203.0.113.10",
+                message="Observed IP 203.0.113.10 passed verification.",
+            )
+
+            self.assertTrue(event["verified"])
+            latest = store.latest_verification("vpn")
+            self.assertEqual(latest["ip"], "203.0.113.10")
+            self.assertTrue(store.status(Policy(output_root=Path(root)))["recent_verifications"])
+
 
 if __name__ == "__main__":
     unittest.main()
